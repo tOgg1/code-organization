@@ -433,6 +433,32 @@ The TUI provides:
 
 ---
 
+## Shell Integration
+
+### Quick Navigation with `ccd`
+
+Add this function to your `~/.zshrc` or `~/.bashrc` for instant workspace navigation:
+
+```bash
+ccd() { cd "$(co cd "$1")" }
+```
+
+The `co cd` command supports fuzzy matching, so you can type partial names:
+
+```bash
+ccd dashboard      # matches acme--dashboard
+ccd api            # matches acme--api-server
+ccd acme           # matches first acme--* workspace
+```
+
+After adding the function, reload your shell:
+
+```bash
+source ~/.zshrc  # or source ~/.bashrc
+```
+
+---
+
 ## Development
 
 ```bash
