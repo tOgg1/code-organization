@@ -221,7 +221,7 @@ List workspaces with optional filters.
 
 ```bash
 co ls                          # All workspaces
-co ls --owner ur               # Filter by owner
+co ls --owner acme             # Filter by owner
 co ls --state active           # Filter by state
 co ls --tag client             # Filter by tag
 co ls --json                   # JSON output
