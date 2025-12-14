@@ -9,6 +9,13 @@ import (
 	"strings"
 )
 
+// TemplateListing contains summary info plus source metadata for a template.
+type TemplateListing struct {
+	Info         TemplateInfo `json:"info"`
+	SourceDir    string       `json:"source_dir"`
+	TemplatePath string       `json:"template_path"`
+}
+
 // templateNamePattern validates template names (lowercase alphanumeric with hyphens).
 var templateNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
@@ -68,6 +75,11 @@ func ListTemplateInfos(templatesDir string) ([]TemplateInfo, error) {
 	return ListTemplateInfosMulti([]string{templatesDir})
 }
 
+// ListTemplateListings returns templates with source metadata and _global paths.
+func ListTemplateListings(templatesDir string) ([]TemplateListing, []string, error) {
+	return ListTemplateListingsMulti([]string{templatesDir})
+}
+
 // ListTemplateInfosMulti returns summary information for templates from multiple directories.
 func ListTemplateInfosMulti(templatesDirs []string) ([]TemplateInfo, error) {
 	templates, err := ListTemplatesMulti(templatesDirs)
@@ -81,6 +93,57 @@ func ListTemplateInfosMulti(templatesDirs []string) ([]TemplateInfo, error) {
 	}
 
 	return infos, nil
+}
+
+// ListTemplateListingsMulti returns templates with source metadata from multiple directories.
+// Templates in earlier directories take precedence. Also returns _global directories in precedence order.
+func ListTemplateListingsMulti(templatesDirs []string) ([]TemplateListing, []string, error) {
+	seen := make(map[string]bool)
+	var listings []TemplateListing
+
+	for _, dir := range templatesDirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, nil, fmt.Errorf("reading templates directory %s: %w", dir, err)
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			name := entry.Name()
+			// Skip _global directory and hidden directories
+			if name == GlobalTemplateDir || strings.HasPrefix(name, ".") {
+				continue
+			}
+
+			// Skip if already seen (earlier directory takes precedence)
+			if seen[name] {
+				continue
+			}
+
+			tmpl, err := LoadTemplate(dir, name)
+			if err != nil {
+				// Skip invalid templates in listing
+				continue
+			}
+
+			listings = append(listings, TemplateListing{
+				Info:         tmpl.ToInfo(),
+				SourceDir:    dir,
+				TemplatePath: filepath.Join(dir, name),
+			})
+			seen[name] = true
+		}
+	}
+
+	globalPaths := GetGlobalFilesPaths(templatesDirs)
+
+	return listings, globalPaths, nil
 }
 
 // LoadTemplate loads a template by name from the templates directory.
