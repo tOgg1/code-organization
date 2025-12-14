@@ -170,6 +170,11 @@ func (c *Config) CacheDir() string {
 	return filepath.Join(c.SystemDir(), "cache")
 }
 
+// TemplatesDir returns the path to the templates directory.
+func (c *Config) TemplatesDir() string {
+	return filepath.Join(c.SystemDir(), "templates")
+}
+
 func (c *Config) WorkspacePath(slug string) string {
 	return filepath.Join(c.CodeRoot, slug)
 }

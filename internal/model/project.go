@@ -23,16 +23,18 @@ type RepoSpec struct {
 }
 
 type Project struct {
-	Schema  int          `json:"schema"`
-	Slug    string       `json:"slug"`
-	Owner   string       `json:"owner"`
-	Name    string       `json:"name"`
-	State   ProjectState `json:"state"`
-	Tags    []string     `json:"tags,omitempty"`
-	Created string       `json:"created"`
-	Updated string       `json:"updated"`
-	Repos   []RepoSpec   `json:"repos"`
-	Notes   string       `json:"notes,omitempty"`
+	Schema       int               `json:"schema"`
+	Slug         string            `json:"slug"`
+	Owner        string            `json:"owner"`
+	Name         string            `json:"name"`
+	State        ProjectState      `json:"state"`
+	Tags         []string          `json:"tags,omitempty"`
+	Created      string            `json:"created"`
+	Updated      string            `json:"updated"`
+	Repos        []RepoSpec        `json:"repos"`
+	Notes        string            `json:"notes,omitempty"`
+	Template     string            `json:"template,omitempty"`      // Template used to create workspace
+	TemplateVars map[string]string `json:"template_vars,omitempty"` // Variables used during creation
 }
 
 const CurrentProjectSchema = 1
