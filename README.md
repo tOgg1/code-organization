@@ -266,6 +266,25 @@ co show acme--dashboard
 co show acme--dashboard --json
 ```
 
+#### `co template`
+
+Launch the Template Explorer TUI to browse, inspect, and create workspaces from templates.
+
+```bash
+co template            # Launch Template Explorer TUI
+co template list       # List templates (non-interactive)
+co template show <name>    # Show template details
+co template validate [name]    # Validate one or all templates
+```
+
+The Template Explorer provides an interactive interface for:
+- Browsing available templates across all configured directories
+- Viewing template details, variables, repos, and hooks
+- Creating new workspaces with variable prompting
+- Validating template manifests
+
+See the [Template Explorer TUI](#template-explorer-tui) section for keybindings.
+
 #### `co open <workspace-slug>`
 
 Open a workspace in your configured editor.
@@ -355,9 +374,16 @@ Configuration is discovered in order:
 
 Templates provide reusable workspace scaffolding with pre-configured files, repos, and setup scripts.
 
+> **Tip:** Use `co template` to launch the [Template Explorer TUI](#template-explorer-tui) for interactive template browsing and workspace creation.
+
 ### Template Location
 
-Templates are stored in `~/Code/_system/templates/` (inside your code root). Each template is a directory containing a `template.json` manifest.
+Templates are searched in multiple directories with the following precedence:
+
+1. **Primary:** `<code_root>/_system/templates/` (e.g., `~/Code/_system/templates/`)
+2. **Fallback:** `~/.config/co/templates/` (or `$XDG_CONFIG_HOME/co/templates/`)
+
+When templates with the same name exist in multiple locations, the primary location takes precedence. Each template is a directory containing a `template.json` manifest.
 
 ```
 ~/Code/_system/templates/
@@ -371,8 +397,6 @@ Templates are stored in `~/Code/_system/templates/` (inside your code root). Eac
 └── _global/                # Files copied to ALL template-based workspaces
     └── .editorconfig
 ```
-
-**Fallback location:** If a template isn't found in `_system/templates/`, co will also check `~/.config/co/templates/` (or `$XDG_CONFIG_HOME/co/templates/`).
 
 ### Template Manifest
 
@@ -743,6 +767,103 @@ The TUI provides:
 | `s` | Sync to server |
 | `r` | Refresh index |
 | `q` | Quit |
+
+---
+
+## Template Explorer TUI
+
+The Template Explorer (`co template`) provides a dedicated interface for working with workspace templates.
+
+### Tabs
+
+| Tab | Purpose |
+|-----|---------|
+| **Browse** | View all templates with details pane |
+| **Files** | Browse template source files *(coming soon)* |
+| **Create** | Create new workspace from selected template |
+| **Validate** | Validate template manifests |
+
+### Keybindings
+
+#### Global (all tabs)
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `Shift+Tab` | Next / previous tab |
+| `1-4` | Jump to tab by number |
+| `q` / `Ctrl+C` | Quit |
+
+#### Browse Tab
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↑/↓` | Navigate template list |
+| `/` | Search templates |
+| `l` / `→` | Switch to details pane |
+| `h` / `←` | Switch to list pane |
+| `o` | Open template directory in editor |
+| `v` | Validate selected template |
+
+#### Create Tab
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `↓` | Next field |
+| `Shift+Tab` / `↑` | Previous field |
+| `Space` | Toggle checkbox (dry-run, no-hooks) |
+| `Enter` | Submit / confirm |
+| `Esc` | Cancel variable prompt or creation |
+
+#### Variable Prompting
+
+When a template has variables, you'll be prompted for each:
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Confirm value |
+| `y/n` | Toggle boolean |
+| `j/k` | Navigate choice list |
+| `Esc` | Cancel and return to Create tab |
+
+#### Creation Result Screen
+
+| Key | Action |
+|-----|--------|
+| `o` | Open created workspace in editor |
+| `Enter` / `Esc` | Return to Create tab |
+| `q` | Quit |
+
+#### Validate Tab
+
+| Key | Action |
+|-----|--------|
+| `v` | Validate selected template |
+| `V` | Validate all templates |
+| `j/k` or `↑/↓` | Navigate results |
+| `l/h` | Switch panes |
+
+### Template Search Paths
+
+Templates are searched in multiple directories with the following precedence:
+
+1. **Primary:** `<code_root>/_system/templates/` (e.g., `~/Code/_system/templates/`)
+2. **Fallback:** `~/.config/co/templates/` (or `$XDG_CONFIG_HOME/co/templates/`)
+
+When templates with the same name exist in multiple locations, the primary location takes precedence. The Template Explorer shows the source directory for each template.
+
+### Global Files
+
+The special `_global` directory contains files copied to ALL template-based workspaces:
+
+```
+~/Code/_system/templates/_global/
+├── .editorconfig
+├── .gitattributes
+└── .claude/
+    └── settings.json
+```
+
+Global files from all template directories are merged, with primary taking precedence over fallback.
 
 ---
 
