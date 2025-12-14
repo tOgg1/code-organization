@@ -18,13 +18,14 @@ func CreateWorkspace(cfg *config.Config, owner, project string, opts CreateOptio
 		WorkspaceSlug: owner + "--" + project,
 	}
 
-	// Load template
-	tmpl, err := LoadTemplate(cfg.TemplatesDir(), opts.TemplateName)
+	// Load template from primary or fallback directories
+	templatesDirs := cfg.AllTemplatesDirs()
+	tmpl, templatesDir, err := LoadTemplateMulti(templatesDirs, opts.TemplateName)
 	if err != nil {
 		return nil, err
 	}
 
-	templatePath := filepath.Join(cfg.TemplatesDir(), opts.TemplateName)
+	templatePath := filepath.Join(templatesDir, opts.TemplateName)
 	workspacePath := cfg.WorkspacePath(result.WorkspaceSlug)
 	reposPath := filepath.Join(workspacePath, "repos")
 
@@ -74,7 +75,7 @@ func CreateWorkspace(cfg *config.Config, owner, project string, opts CreateOptio
 
 	if opts.DryRun {
 		// In dry-run mode, just return what would be created
-		globalFiles, _ := ListGlobalFiles(cfg.TemplatesDir())
+		globalFiles, _ := ListGlobalFilesMulti(templatesDirs)
 		templateFiles, _ := ListTemplateFiles(tmpl, templatePath)
 		result.GlobalFiles = len(globalFiles)
 		result.TemplateFiles = len(templateFiles)
@@ -91,8 +92,8 @@ func CreateWorkspace(cfg *config.Config, owner, project string, opts CreateOptio
 	}
 	result.WorkspacePath = workspacePath
 
-	// Process files
-	globalCount, templateCount, err := ProcessAllFiles(tmpl, cfg.TemplatesDir(), templatePath, workspacePath, vars)
+	// Process files (global files from all directories, template files from found template)
+	globalCount, templateCount, err := ProcessAllFilesMulti(tmpl, templatesDirs, templatePath, workspacePath, vars)
 	if err != nil {
 		return result, fmt.Errorf("processing files: %w", err)
 	}
@@ -195,13 +196,14 @@ func ApplyTemplateToExisting(cfg *config.Config, workspacePath, templateName str
 	owner, project := parseSlug(slug)
 	result.WorkspaceSlug = slug
 
-	// Load template
-	tmpl, err := LoadTemplate(cfg.TemplatesDir(), templateName)
+	// Load template from primary or fallback directories
+	templatesDirs := cfg.AllTemplatesDirs()
+	tmpl, templatesDir, err := LoadTemplateMulti(templatesDirs, templateName)
 	if err != nil {
 		return nil, err
 	}
 
-	templatePath := filepath.Join(cfg.TemplatesDir(), templateName)
+	templatePath := filepath.Join(templatesDir, templateName)
 	reposPath := filepath.Join(workspacePath, "repos")
 
 	// Get built-in variables
@@ -213,8 +215,8 @@ func ApplyTemplateToExisting(cfg *config.Config, workspacePath, templateName str
 		return nil, fmt.Errorf("resolving variables: %w", err)
 	}
 
-	// Process files (skip global if workspace already has them)
-	globalCount, templateCount, err := ProcessAllFiles(tmpl, cfg.TemplatesDir(), templatePath, workspacePath, vars)
+	// Process files (global files from all directories, template files from found template)
+	globalCount, templateCount, err := ProcessAllFilesMulti(tmpl, templatesDirs, templatePath, workspacePath, vars)
 	if err != nil {
 		return result, fmt.Errorf("processing files: %w", err)
 	}
