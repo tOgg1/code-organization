@@ -15,6 +15,7 @@
 - **Interactive TUI** — Browse, search, and manage projects with a polished terminal interface
 - **Remote sync** — One-command rsync to named servers with safety checks
 - **Safe archiving** — Git-bundle based archives that preserve full history
+- **Semantic code search** — Find code by meaning using AST-aware chunking and vector embeddings (via Ollama)
 
 ---
 
@@ -384,6 +385,163 @@ Archives use git bundles to preserve full history without copying build artifact
 
 ---
 
+## Semantic Code Search
+
+`co` includes a semantic code search feature that lets you find code by meaning rather than exact text matching. For example, searching for "authentication middleware" can find auth-related functions even if they don't contain those exact words.
+
+### How It Works
+
+1. **AST-aware chunking** — Uses tree-sitter to extract semantic units (functions, classes, methods) rather than arbitrary line splits
+2. **Local embeddings** — Generates vector embeddings via Ollama (runs locally, free)
+3. **Vector similarity** — Stores embeddings in SQLite with sqlite-vec for fast similarity search
+
+### Prerequisites
+
+Install and run [Ollama](https://ollama.ai):
+
+```bash
+# Install Ollama (macOS)
+brew install ollama
+
+# Start the server
+ollama serve
+
+# Pull the embedding model (768 dimensions, ~270MB)
+ollama pull nomic-embed-text
+```
+
+### Commands
+
+#### `co vector index [codebase...]`
+
+Index codebases for semantic search.
+
+```bash
+# Index a specific codebase
+co vector index acme--backend
+
+# Index multiple codebases
+co vector index acme--api acme--web
+
+# Index all active codebases
+co vector index --all
+
+# Index with verbose output
+co vector index acme--backend -v
+```
+
+Indexing is **incremental** — unchanged files are skipped based on content hash.
+
+#### `co vector search <query>`
+
+Search for similar code across indexed codebases.
+
+```bash
+# Natural language query
+co vector search "authentication middleware"
+
+# Code pattern query
+co vector search "func handleError(err error)"
+
+# With code content preview
+co vector search "database connection" --content
+
+# Limit results
+co vector search "api endpoint" -n 5
+
+# Filter by codebase
+co vector search "user model" --codebase acme--backend
+
+# Use a file as query
+co vector search --file example.go
+
+# JSON output for scripting
+co vector search "config parsing" --json
+```
+
+#### `co vector stats [codebase]`
+
+Show index statistics.
+
+```bash
+co vector stats                     # All codebases
+co vector stats --codebase acme     # Specific codebase
+co vector stats --json              # JSON output
+```
+
+Output includes:
+- Total files and chunks indexed
+- Per-codebase breakdown
+- Language distribution
+- Index freshness
+
+#### `co vector clear [codebase]`
+
+Clear index data.
+
+```bash
+co vector clear acme--backend       # Clear one codebase
+co vector clear --all               # Clear entire index
+```
+
+### Configuration
+
+Add to your `config.json`:
+
+```json
+{
+  "embeddings": {
+    "backend": "ollama",
+    "ollama_url": "http://localhost:11434",
+    "ollama_model": "nomic-embed-text"
+  },
+  "indexing": {
+    "chunk_max_lines": 100,
+    "chunk_min_lines": 5,
+    "max_file_size_bytes": 1048576,
+    "batch_size": 50,
+    "workers": 4,
+    "exclude_patterns": [
+      "**/node_modules/**",
+      "**/vendor/**",
+      "**/.git/**"
+    ]
+  }
+}
+```
+
+### Supported Languages
+
+Tree-sitter parsing extracts semantic chunks from:
+- Go
+- Python
+- JavaScript / TypeScript
+- Rust
+- Java
+- C / C++
+
+Other file types fall back to line-based chunking.
+
+### Understanding Scores
+
+Search results include a similarity score (0-1):
+- **0.15-0.20** — Strong semantic match
+- **0.10-0.15** — Good match
+- **0.05-0.10** — Weak match
+- **< 0.05** — Marginal relevance
+
+Use `--min-score` to filter results:
+
+```bash
+co vector search "error handling" --min-score 0.1
+```
+
+### Data Storage
+
+Vector data is stored in `~/Code/_system/vectors.db` (SQLite with sqlite-vec extension).
+
+---
+
 ## TUI
 
 The TUI provides:
@@ -417,13 +575,17 @@ The TUI provides:
 │       └── cmd/             # Cobra commands
 ├── internal/
 │   ├── archive/             # Git bundle archive builder
+│   ├── chunker/             # AST-aware code chunking (tree-sitter)
 │   ├── config/              # Config parsing + server resolution
+│   ├── embedder/            # Embedding generation (Ollama client)
 │   ├── fs/                  # Workspace scanning, directory walking
 │   ├── git/                 # Git inspection (head, branch, dirty)
 │   ├── index/               # Index generation + atomic write
 │   ├── model/               # Data structures (project, index)
+│   ├── search/              # Vector search indexing + querying
 │   ├── sync/                # Remote sync (rsync/tar transport)
-│   └── tui/                 # Bubble Tea models/views
+│   ├── tui/                 # Bubble Tea models/views
+│   └── vectordb/            # SQLite + sqlite-vec database
 ├── build/                   # Build output
 ├── go.mod
 ├── go.sum
