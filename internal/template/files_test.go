@@ -1061,3 +1061,286 @@ func findSubstr(s, substr string) bool {
 	}
 	return false
 }
+
+// TestListGlobalFilesMulti tests merging global files from multiple directories.
+func TestListGlobalFilesMulti(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "template-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create primary and fallback template directories
+	primaryDir := filepath.Join(tmpDir, "primary", "_global")
+	fallbackDir := filepath.Join(tmpDir, "fallback", "_global")
+
+	if err := os.MkdirAll(primaryDir, 0755); err != nil {
+		t.Fatalf("Failed to create primary dir: %v", err)
+	}
+	if err := os.MkdirAll(fallbackDir, 0755); err != nil {
+		t.Fatalf("Failed to create fallback dir: %v", err)
+	}
+
+	// Primary has: README.md.tmpl (should win), primary-only.txt
+	if err := os.WriteFile(filepath.Join(primaryDir, "README.md.tmpl"), []byte("primary README"), 0644); err != nil {
+		t.Fatalf("Failed to write primary README: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(primaryDir, "primary-only.txt"), []byte("primary only"), 0644); err != nil {
+		t.Fatalf("Failed to write primary-only: %v", err)
+	}
+
+	// Fallback has: README.md.tmpl (should be ignored), fallback-only.txt
+	if err := os.WriteFile(filepath.Join(fallbackDir, "README.md.tmpl"), []byte("fallback README"), 0644); err != nil {
+		t.Fatalf("Failed to write fallback README: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(fallbackDir, "fallback-only.txt"), []byte("fallback only"), 0644); err != nil {
+		t.Fatalf("Failed to write fallback-only: %v", err)
+	}
+
+	templatesDirs := []string{
+		filepath.Join(tmpDir, "primary"),
+		filepath.Join(tmpDir, "fallback"),
+	}
+
+	files, err := ListGlobalFilesMulti(templatesDirs)
+	if err != nil {
+		t.Fatalf("ListGlobalFilesMulti() error = %v", err)
+	}
+
+	// Should have 3 unique files: README.md, primary-only.txt, fallback-only.txt
+	if len(files) != 3 {
+		t.Errorf("ListGlobalFilesMulti() len = %d, want 3, got: %v", len(files), files)
+	}
+
+	// Verify expected files are present
+	expected := map[string]bool{
+		"README.md":        true,
+		"primary-only.txt": true,
+		"fallback-only.txt": true,
+	}
+	for _, f := range files {
+		if !expected[f] {
+			t.Errorf("Unexpected file in list: %s", f)
+		}
+		delete(expected, f)
+	}
+	for f := range expected {
+		t.Errorf("Missing expected file: %s", f)
+	}
+}
+
+// TestProcessGlobalFilesMulti tests processing global files from multiple directories with priority.
+func TestProcessGlobalFilesMulti(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "template-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create primary and fallback template directories
+	primaryDir := filepath.Join(tmpDir, "primary", "_global")
+	fallbackDir := filepath.Join(tmpDir, "fallback", "_global")
+	destDir := filepath.Join(tmpDir, "dest")
+
+	for _, dir := range []string{primaryDir, fallbackDir, destDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create dir: %v", err)
+		}
+	}
+
+	// Primary has: override.txt (content "primary"), primary-only.txt
+	if err := os.WriteFile(filepath.Join(primaryDir, "override.txt"), []byte("primary"), 0644); err != nil {
+		t.Fatalf("Failed to write primary override: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(primaryDir, "primary-only.txt"), []byte("primary only"), 0644); err != nil {
+		t.Fatalf("Failed to write primary-only: %v", err)
+	}
+
+	// Fallback has: override.txt (content "fallback" - should be ignored), fallback-only.txt
+	if err := os.WriteFile(filepath.Join(fallbackDir, "override.txt"), []byte("fallback"), 0644); err != nil {
+		t.Fatalf("Failed to write fallback override: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(fallbackDir, "fallback-only.txt"), []byte("fallback only"), 0644); err != nil {
+		t.Fatalf("Failed to write fallback-only: %v", err)
+	}
+
+	templatesDirs := []string{
+		filepath.Join(tmpDir, "primary"),
+		filepath.Join(tmpDir, "fallback"),
+	}
+
+	count, err := ProcessGlobalFilesMulti(templatesDirs, destDir, nil, nil)
+	if err != nil {
+		t.Fatalf("ProcessGlobalFilesMulti() error = %v", err)
+	}
+
+	// Should process 3 files (override.txt from primary, primary-only.txt, fallback-only.txt)
+	if count != 3 {
+		t.Errorf("ProcessGlobalFilesMulti() count = %d, want 3", count)
+	}
+
+	// Verify override.txt has PRIMARY content (not fallback)
+	content, err := os.ReadFile(filepath.Join(destDir, "override.txt"))
+	if err != nil {
+		t.Fatalf("Failed to read override.txt: %v", err)
+	}
+	if string(content) != "primary" {
+		t.Errorf("override.txt content = %q, want %q (primary should take precedence)", string(content), "primary")
+	}
+
+	// Verify both unique files exist
+	if _, err := os.Stat(filepath.Join(destDir, "primary-only.txt")); os.IsNotExist(err) {
+		t.Error("Expected primary-only.txt to be created")
+	}
+	if _, err := os.Stat(filepath.Join(destDir, "fallback-only.txt")); os.IsNotExist(err) {
+		t.Error("Expected fallback-only.txt to be created")
+	}
+}
+
+// TestProcessGlobalFilesMultiSkipAll tests skipping all global files in multi-directory mode.
+func TestProcessGlobalFilesMultiSkipAll(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "template-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	primaryDir := filepath.Join(tmpDir, "primary", "_global")
+	destDir := filepath.Join(tmpDir, "dest")
+
+	if err := os.MkdirAll(primaryDir, 0755); err != nil {
+		t.Fatalf("Failed to create primary dir: %v", err)
+	}
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		t.Fatalf("Failed to create dest dir: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(primaryDir, "test.txt"), []byte("content"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	templatesDirs := []string{filepath.Join(tmpDir, "primary")}
+
+	count, err := ProcessGlobalFilesMulti(templatesDirs, destDir, nil, true)
+	if err != nil {
+		t.Fatalf("ProcessGlobalFilesMulti() error = %v", err)
+	}
+
+	if count != 0 {
+		t.Errorf("ProcessGlobalFilesMulti() with skip=true count = %d, want 0", count)
+	}
+
+	if _, err := os.Stat(filepath.Join(destDir, "test.txt")); !os.IsNotExist(err) {
+		t.Error("Expected test.txt to NOT be created when skip=true")
+	}
+}
+
+// TestProcessGlobalFilesMultiOnlyFallback tests when primary has no _global but fallback does.
+func TestProcessGlobalFilesMultiOnlyFallback(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "template-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Only create fallback _global directory
+	primaryDir := filepath.Join(tmpDir, "primary") // no _global subdirectory
+	fallbackDir := filepath.Join(tmpDir, "fallback", "_global")
+	destDir := filepath.Join(tmpDir, "dest")
+
+	if err := os.MkdirAll(primaryDir, 0755); err != nil {
+		t.Fatalf("Failed to create primary dir: %v", err)
+	}
+	if err := os.MkdirAll(fallbackDir, 0755); err != nil {
+		t.Fatalf("Failed to create fallback dir: %v", err)
+	}
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		t.Fatalf("Failed to create dest dir: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(fallbackDir, "from-fallback.txt"), []byte("fallback content"), 0644); err != nil {
+		t.Fatalf("Failed to write fallback file: %v", err)
+	}
+
+	templatesDirs := []string{primaryDir, filepath.Join(tmpDir, "fallback")}
+
+	count, err := ProcessGlobalFilesMulti(templatesDirs, destDir, nil, nil)
+	if err != nil {
+		t.Fatalf("ProcessGlobalFilesMulti() error = %v", err)
+	}
+
+	if count != 1 {
+		t.Errorf("ProcessGlobalFilesMulti() count = %d, want 1", count)
+	}
+
+	content, err := os.ReadFile(filepath.Join(destDir, "from-fallback.txt"))
+	if err != nil {
+		t.Fatalf("Failed to read from-fallback.txt: %v", err)
+	}
+	if string(content) != "fallback content" {
+		t.Errorf("from-fallback.txt content = %q, want %q", string(content), "fallback content")
+	}
+}
+
+// TestProcessAllFilesMulti tests the full multi-directory file processing.
+func TestProcessAllFilesMulti(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "template-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create primary and fallback template directories
+	primaryGlobalDir := filepath.Join(tmpDir, "primary", "_global")
+	fallbackGlobalDir := filepath.Join(tmpDir, "fallback", "_global")
+	templatePath := filepath.Join(tmpDir, "primary", "my-template")
+	templateFilesDir := filepath.Join(templatePath, "files")
+	destDir := filepath.Join(tmpDir, "dest")
+
+	for _, dir := range []string{primaryGlobalDir, fallbackGlobalDir, templateFilesDir, destDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create dir %s: %v", dir, err)
+		}
+	}
+
+	// Primary global: primary-global.txt
+	if err := os.WriteFile(filepath.Join(primaryGlobalDir, "primary-global.txt"), []byte("primary global"), 0644); err != nil {
+		t.Fatalf("Failed to write primary global: %v", err)
+	}
+
+	// Fallback global: fallback-global.txt
+	if err := os.WriteFile(filepath.Join(fallbackGlobalDir, "fallback-global.txt"), []byte("fallback global"), 0644); err != nil {
+		t.Fatalf("Failed to write fallback global: %v", err)
+	}
+
+	// Template files: template.txt
+	if err := os.WriteFile(filepath.Join(templateFilesDir, "template.txt"), []byte("template content"), 0644); err != nil {
+		t.Fatalf("Failed to write template file: %v", err)
+	}
+
+	tmpl := &Template{Name: "my-template"}
+	templatesDirs := []string{
+		filepath.Join(tmpDir, "primary"),
+		filepath.Join(tmpDir, "fallback"),
+	}
+
+	globalCount, templateCount, err := ProcessAllFilesMulti(tmpl, templatesDirs, templatePath, destDir, nil)
+	if err != nil {
+		t.Fatalf("ProcessAllFilesMulti() error = %v", err)
+	}
+
+	// Should have 2 global files (from both directories) and 1 template file
+	if globalCount != 2 {
+		t.Errorf("ProcessAllFilesMulti() globalCount = %d, want 2", globalCount)
+	}
+	if templateCount != 1 {
+		t.Errorf("ProcessAllFilesMulti() templateCount = %d, want 1", templateCount)
+	}
+
+	// Verify all files exist
+	for _, f := range []string{"primary-global.txt", "fallback-global.txt", "template.txt"} {
+		if _, err := os.Stat(filepath.Join(destDir, f)); os.IsNotExist(err) {
+			t.Errorf("Expected %s to be created", f)
+		}
+	}
+}
