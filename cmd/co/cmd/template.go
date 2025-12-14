@@ -9,12 +9,29 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tormodhaugland/co/internal/config"
 	"github.com/tormodhaugland/co/internal/template"
+	"github.com/tormodhaugland/co/internal/tui"
 )
 
 var templateCmd = &cobra.Command{
 	Use:   "template",
 	Short: "Manage workspace templates",
-	Long:  `List, show, and validate workspace templates.`,
+	Long: `Manage workspace templates with an interactive TUI.
+
+Running 'co template' without a subcommand opens the Template Explorer TUI
+where you can browse, inspect, create workspaces from, and validate templates.
+
+Subcommands are available for non-interactive use:
+  list      - List all templates
+  show      - Show template details
+  validate  - Validate templates`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load(cfgFile)
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		return tui.RunTemplateExplorer(cfg)
+	},
 }
 
 var templateListCmd = &cobra.Command{
