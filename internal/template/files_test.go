@@ -1344,3 +1344,211 @@ func TestProcessAllFilesMulti(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildOutputMapping tests the output mapping builder.
+func TestBuildOutputMapping(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "template-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create primary and fallback template directories
+	primaryGlobalDir := filepath.Join(tmpDir, "primary", "_global")
+	fallbackGlobalDir := filepath.Join(tmpDir, "fallback", "_global")
+	templatePath := filepath.Join(tmpDir, "primary", "my-template")
+	templateFilesDir := filepath.Join(templatePath, "files")
+
+	for _, dir := range []string{primaryGlobalDir, fallbackGlobalDir, templateFilesDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create dir %s: %v", dir, err)
+		}
+	}
+
+	// Primary global: README.md.tmpl (will be overridden), primary-global.txt
+	if err := os.WriteFile(filepath.Join(primaryGlobalDir, "README.md.tmpl"), []byte("# Global"), 0644); err != nil {
+		t.Fatalf("Failed to write: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(primaryGlobalDir, "primary-global.txt"), []byte("primary"), 0644); err != nil {
+		t.Fatalf("Failed to write: %v", err)
+	}
+
+	// Fallback global: fallback-global.txt
+	if err := os.WriteFile(filepath.Join(fallbackGlobalDir, "fallback-global.txt"), []byte("fallback"), 0644); err != nil {
+		t.Fatalf("Failed to write: %v", err)
+	}
+
+	// Template files: README.md.tmpl (overrides global), template.txt
+	if err := os.WriteFile(filepath.Join(templateFilesDir, "README.md.tmpl"), []byte("# Template"), 0644); err != nil {
+		t.Fatalf("Failed to write: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(templateFilesDir, "template.txt"), []byte("template"), 0644); err != nil {
+		t.Fatalf("Failed to write: %v", err)
+	}
+
+	tmpl := &Template{Name: "my-template"}
+	templatesDirs := []string{
+		filepath.Join(tmpDir, "primary"),
+		filepath.Join(tmpDir, "fallback"),
+	}
+
+	mappings, err := BuildOutputMapping(tmpl, templatesDirs, templatePath)
+	if err != nil {
+		t.Fatalf("BuildOutputMapping() error = %v", err)
+	}
+
+	// Should have 4 output files
+	if len(mappings) != 4 {
+		t.Errorf("BuildOutputMapping() len = %d, want 4, got: %v", len(mappings), mappings)
+	}
+
+	// Build a map for easier lookup
+	byOutput := make(map[string]OutputMapping)
+	for _, m := range mappings {
+		byOutput[m.OutputPath] = m
+	}
+
+	// Check README.md - should come from template with IsOverride=true
+	readme, ok := byOutput["README.md"]
+	if !ok {
+		t.Fatal("Expected README.md in mappings")
+	}
+	if readme.OriginType != OriginTemplate {
+		t.Errorf("README.md OriginType = %v, want %v", readme.OriginType, OriginTemplate)
+	}
+	if !readme.IsOverride {
+		t.Error("README.md should have IsOverride=true")
+	}
+	if !readme.IsTemplate {
+		t.Error("README.md should have IsTemplate=true")
+	}
+
+	// Check primary-global.txt - should come from global
+	primaryGlobal, ok := byOutput["primary-global.txt"]
+	if !ok {
+		t.Fatal("Expected primary-global.txt in mappings")
+	}
+	if primaryGlobal.OriginType != OriginGlobal {
+		t.Errorf("primary-global.txt OriginType = %v, want %v", primaryGlobal.OriginType, OriginGlobal)
+	}
+	if primaryGlobal.IsOverride {
+		t.Error("primary-global.txt should not be an override")
+	}
+
+	// Check fallback-global.txt - should come from fallback global
+	fallbackGlobal, ok := byOutput["fallback-global.txt"]
+	if !ok {
+		t.Fatal("Expected fallback-global.txt in mappings")
+	}
+	if fallbackGlobal.OriginType != OriginGlobal {
+		t.Errorf("fallback-global.txt OriginType = %v, want %v", fallbackGlobal.OriginType, OriginGlobal)
+	}
+
+	// Check template.txt - should come from template
+	templateFile, ok := byOutput["template.txt"]
+	if !ok {
+		t.Fatal("Expected template.txt in mappings")
+	}
+	if templateFile.OriginType != OriginTemplate {
+		t.Errorf("template.txt OriginType = %v, want %v", templateFile.OriginType, OriginTemplate)
+	}
+	if templateFile.IsOverride {
+		t.Error("template.txt should not be an override")
+	}
+}
+
+// TestBuildOutputMappingSkipGlobal tests output mapping with skip_global_files.
+func TestBuildOutputMappingSkipGlobal(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "template-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	globalDir := filepath.Join(tmpDir, "templates", "_global")
+	templatePath := filepath.Join(tmpDir, "templates", "my-template")
+	templateFilesDir := filepath.Join(templatePath, "files")
+
+	for _, dir := range []string{globalDir, templateFilesDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create dir: %v", err)
+		}
+	}
+
+	// Create global and template files
+	if err := os.WriteFile(filepath.Join(globalDir, "global.txt"), []byte("global"), 0644); err != nil {
+		t.Fatalf("Failed to write: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(templateFilesDir, "template.txt"), []byte("template"), 0644); err != nil {
+		t.Fatalf("Failed to write: %v", err)
+	}
+
+	// Template with skip_global_files = true
+	tmpl := &Template{
+		Name:            "my-template",
+		SkipGlobalFiles: true,
+	}
+	templatesDirs := []string{filepath.Join(tmpDir, "templates")}
+
+	mappings, err := BuildOutputMapping(tmpl, templatesDirs, templatePath)
+	if err != nil {
+		t.Fatalf("BuildOutputMapping() error = %v", err)
+	}
+
+	// Should only have template file, no global
+	if len(mappings) != 1 {
+		t.Errorf("BuildOutputMapping() with skip_global len = %d, want 1", len(mappings))
+	}
+	if len(mappings) > 0 && mappings[0].OutputPath != "template.txt" {
+		t.Errorf("Expected only template.txt, got %s", mappings[0].OutputPath)
+	}
+}
+
+// TestBuildOutputMappingExcludePatterns tests output mapping with file exclude patterns.
+func TestBuildOutputMappingExcludePatterns(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "template-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	templatePath := filepath.Join(tmpDir, "templates", "my-template")
+	templateFilesDir := filepath.Join(templatePath, "files")
+
+	if err := os.MkdirAll(templateFilesDir, 0755); err != nil {
+		t.Fatalf("Failed to create dir: %v", err)
+	}
+
+	// Create various files
+	files := []string{"main.go", "main_test.go", "helper.go", "helper_test.go"}
+	for _, f := range files {
+		if err := os.WriteFile(filepath.Join(templateFilesDir, f), []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to write %s: %v", f, err)
+		}
+	}
+
+	// Template with exclude pattern for test files
+	tmpl := &Template{
+		Name: "my-template",
+		Files: TemplateFiles{
+			Exclude: []string{"*_test.go"},
+		},
+	}
+	templatesDirs := []string{filepath.Join(tmpDir, "templates")}
+
+	mappings, err := BuildOutputMapping(tmpl, templatesDirs, templatePath)
+	if err != nil {
+		t.Fatalf("BuildOutputMapping() error = %v", err)
+	}
+
+	// Should only have non-test files
+	if len(mappings) != 2 {
+		t.Errorf("BuildOutputMapping() len = %d, want 2", len(mappings))
+	}
+
+	for _, m := range mappings {
+		if contains(m.OutputPath, "_test.go") {
+			t.Errorf("Test file should be excluded: %s", m.OutputPath)
+		}
+	}
+}
