@@ -279,37 +279,156 @@ func ListTemplateFiles(tmpl *Template, templatePath string) ([]string, error) {
 
 // ListGlobalFiles returns a list of files in the _global directory.
 func ListGlobalFiles(templatesDir string) ([]string, error) {
-	globalPath := GetGlobalFilesPath(templatesDir)
+	return ListGlobalFilesMulti([]string{templatesDir})
+}
 
-	if _, err := os.Stat(globalPath); os.IsNotExist(err) {
-		return []string{}, nil
+// ListGlobalFilesMulti returns a deduplicated list of files from all _global directories.
+// Files from earlier directories take precedence (are listed first, duplicates removed).
+func ListGlobalFilesMulti(templatesDirs []string) ([]string, error) {
+	seen := make(map[string]bool)
+	var files []string
+	extensions := []string{".tmpl"}
+
+	for _, templatesDir := range templatesDirs {
+		globalPath := GetGlobalFilesPath(templatesDir)
+
+		if _, err := os.Stat(globalPath); os.IsNotExist(err) {
+			continue
+		}
+
+		err := filepath.Walk(globalPath, func(srcPath string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if info.IsDir() {
+				return nil
+			}
+
+			relPath, err := filepath.Rel(globalPath, srcPath)
+			if err != nil {
+				return err
+			}
+
+			outputPath := relPath
+			if IsTemplateFile(relPath, extensions) {
+				outputPath = StripTemplateExtension(relPath, extensions)
+			}
+
+			// Skip if already seen (earlier directory takes precedence)
+			if seen[outputPath] {
+				return nil
+			}
+
+			seen[outputPath] = true
+			files = append(files, outputPath)
+			return nil
+		})
+		if err != nil {
+			return files, err
+		}
 	}
 
+	return files, nil
+}
+
+// ProcessGlobalFilesMulti processes global files from multiple directories.
+// Files from earlier directories take precedence (won't be overwritten by later ones).
+func ProcessGlobalFilesMulti(templatesDirs []string, destPath string, vars map[string]string, skipFiles interface{}) (int, error) {
+	// Determine which files to skip
+	var skipList []string
+	switch v := skipFiles.(type) {
+	case bool:
+		if v {
+			return 0, nil // Skip all global files
+		}
+	case []string:
+		skipList = v
+	case []interface{}:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				skipList = append(skipList, s)
+			}
+		}
+	}
+
+	processed := make(map[string]bool)
+	count := 0
 	extensions := []string{".tmpl"}
-	var files []string
 
-	err := filepath.Walk(globalPath, func(srcPath string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	for _, templatesDir := range templatesDirs {
+		globalPath := GetGlobalFilesPath(templatesDir)
+
+		if _, err := os.Stat(globalPath); os.IsNotExist(err) {
+			continue
 		}
 
-		if info.IsDir() {
+		err := filepath.Walk(globalPath, func(srcPath string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if info.IsDir() {
+				return nil
+			}
+
+			relPath, err := filepath.Rel(globalPath, srcPath)
+			if err != nil {
+				return err
+			}
+
+			// Check if this file should be skipped
+			for _, skip := range skipList {
+				if relPath == skip || filepath.Base(relPath) == skip {
+					return nil
+				}
+			}
+
+			// Determine output path
+			outputPath := relPath
+			isTemplate := IsTemplateFile(relPath, extensions)
+			if isTemplate {
+				outputPath = StripTemplateExtension(relPath, extensions)
+			}
+
+			// Skip if already processed from an earlier directory
+			if processed[outputPath] {
+				return nil
+			}
+
+			destFilePath := filepath.Join(destPath, outputPath)
+
+			// Process the file
+			if err := processFile(srcPath, destFilePath, isTemplate, vars, extensions); err != nil {
+				return &FileProcessingError{SrcPath: srcPath, DestPath: destFilePath, Err: err}
+			}
+
+			processed[outputPath] = true
+			count++
 			return nil
-		}
-
-		relPath, err := filepath.Rel(globalPath, srcPath)
+		})
 		if err != nil {
-			return err
+			return count, err
 		}
+	}
 
-		outputPath := relPath
-		if IsTemplateFile(relPath, extensions) {
-			outputPath = StripTemplateExtension(relPath, extensions)
-		}
+	return count, nil
+}
 
-		files = append(files, outputPath)
-		return nil
-	})
+// ProcessAllFilesMulti processes files from multiple template directories.
+// Global files are merged from all directories (first wins), template files from the specific template path.
+func ProcessAllFilesMulti(tmpl *Template, templatesDirs []string, templatePath, destPath string, vars map[string]string) (globalCount, templateCount int, err error) {
+	// Process global files from all directories (first wins)
+	globalCount, err = ProcessGlobalFilesMulti(templatesDirs, destPath, vars, tmpl.SkipGlobalFiles)
+	if err != nil {
+		return globalCount, 0, fmt.Errorf("processing global files: %w", err)
+	}
 
-	return files, err
+	// Process template files (may override global files)
+	templateCount, err = ProcessTemplateFiles(tmpl, templatePath, destPath, vars)
+	if err != nil {
+		return globalCount, templateCount, fmt.Errorf("processing template files: %w", err)
+	}
+
+	return globalCount, templateCount, nil
 }
