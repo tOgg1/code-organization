@@ -389,3 +389,83 @@ func TestHasGlobalFilesMulti(t *testing.T) {
 		t.Error("HasGlobalFilesMulti() = true, want false (no _global)")
 	}
 }
+
+func TestListTemplateListingsMulti(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "loader-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dir1 := filepath.Join(tmpDir, "dir1")
+	dir2 := filepath.Join(tmpDir, "dir2")
+
+	// Create templates with same name in dir1/dir2 to test precedence
+	writeTestTemplate(t, dir1, "shared", "from-dir1")
+	writeTestTemplate(t, dir2, "shared", "from-dir2")
+	writeTestTemplate(t, dir2, "only-dir2", "only-dir2-desc")
+
+	// Create _global in both dirs to verify ordering
+	if err := os.MkdirAll(filepath.Join(dir1, GlobalTemplateDir), 0755); err != nil {
+		t.Fatalf("Failed to create _global in dir1: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir2, GlobalTemplateDir), 0755); err != nil {
+		t.Fatalf("Failed to create _global in dir2: %v", err)
+	}
+
+	listings, globalPaths, err := ListTemplateListingsMulti([]string{dir1, dir2})
+	if err != nil {
+		t.Fatalf("ListTemplateListingsMulti() error = %v", err)
+	}
+
+	if len(listings) != 2 {
+		t.Fatalf("expected 2 listings (shared, only-dir2), got %d", len(listings))
+	}
+
+	// shared should come from dir1 (first precedence)
+	if listings[0].Info.Name != "shared" {
+		t.Fatalf("first listing name = %s, want shared", listings[0].Info.Name)
+	}
+	if listings[0].Info.Description != "from-dir1" {
+		t.Errorf("shared description = %s, want from-dir1", listings[0].Info.Description)
+	}
+	if listings[0].SourceDir != dir1 {
+		t.Errorf("shared SourceDir = %s, want %s", listings[0].SourceDir, dir1)
+	}
+	if listings[0].TemplatePath != filepath.Join(dir1, "shared") {
+		t.Errorf("shared TemplatePath = %s, want %s", listings[0].TemplatePath, filepath.Join(dir1, "shared"))
+	}
+
+	// only-dir2 should come from dir2
+	if listings[1].Info.Name != "only-dir2" {
+		t.Fatalf("second listing name = %s, want only-dir2", listings[1].Info.Name)
+	}
+	if listings[1].SourceDir != dir2 {
+		t.Errorf("only-dir2 SourceDir = %s, want %s", listings[1].SourceDir, dir2)
+	}
+
+	if len(globalPaths) != 2 {
+		t.Fatalf("expected 2 global paths, got %d", len(globalPaths))
+	}
+	if globalPaths[0] != filepath.Join(dir1, GlobalTemplateDir) {
+		t.Errorf("globalPaths[0] = %s, want %s", globalPaths[0], filepath.Join(dir1, GlobalTemplateDir))
+	}
+	if globalPaths[1] != filepath.Join(dir2, GlobalTemplateDir) {
+		t.Errorf("globalPaths[1] = %s, want %s", globalPaths[1], filepath.Join(dir2, GlobalTemplateDir))
+	}
+}
+
+// writeTestTemplate creates a minimal template manifest for tests.
+func writeTestTemplate(t *testing.T, dir, name, desc string) {
+	t.Helper()
+
+	templatePath := filepath.Join(dir, name)
+	if err := os.MkdirAll(templatePath, 0755); err != nil {
+		t.Fatalf("Failed to create template dir: %v", err)
+	}
+	tmpl := &Template{Schema: 1, Name: name, Description: desc}
+	data, _ := json.MarshalIndent(tmpl, "", "  ")
+	if err := os.WriteFile(filepath.Join(templatePath, TemplateManifestFile), data, 0644); err != nil {
+		t.Fatalf("Failed to write template.json: %v", err)
+	}
+}
