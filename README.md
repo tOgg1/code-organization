@@ -55,6 +55,12 @@ co new personal my-project
 # Create a workspace with repos
 co new acme webapp https://github.com/acme/frontend.git https://github.com/acme/backend.git
 
+# Create a workspace using a template
+co new acme dashboard -t fullstack
+
+# List available templates
+co new --list-templates
+
 # Regenerate the global index
 co index
 
@@ -202,7 +208,30 @@ co new personal my-project
 co new acme webapp \
   https://github.com/acme/frontend.git \
   https://github.com/acme/backend.git
+
+# Using a template
+co new acme dashboard -t fullstack
+
+# With template variables
+co new acme api -t backend -v port=8080 -v db_name=app_db
+
+# Interactive mode (prompts for owner, project, and template)
+co new
+
+# Preview template creation without making changes
+co new acme app -t fullstack --dry-run
 ```
+
+**Template flags:**
+
+| Flag | Description |
+|------|-------------|
+| `-t, --template <name>` | Use a template for workspace creation |
+| `-v, --var <key=value>` | Set template variable (can be repeated) |
+| `--no-hooks` | Skip running lifecycle hooks |
+| `--dry-run` | Preview creation without making changes |
+| `--list-templates` | List available templates |
+| `--show-template <name>` | Show template details |
 
 #### `co index`
 
@@ -319,6 +348,158 @@ Configuration is discovered in order:
 **Server definitions:**
 - `ssh` — SSH alias or host (uses `~/.ssh/config`)
 - `code_root` — Remote code root (defaults to `~/Code`)
+
+---
+
+## Templates
+
+Templates provide reusable workspace scaffolding with pre-configured files, repos, and setup scripts.
+
+### Template Location
+
+Templates are stored in `~/Code/_system/templates/` (inside your code root). Each template is a directory containing a `template.json` manifest.
+
+```
+~/Code/_system/templates/
+├── fullstack/
+│   ├── template.json
+│   ├── .claude/
+│   │   └── AGENTS.md
+│   └── docker-compose.yml
+├── backend/
+│   └── template.json
+└── _global/                # Files copied to ALL template-based workspaces
+    └── .editorconfig
+```
+
+**Fallback location:** If a template isn't found in `_system/templates/`, co will also check `~/.config/co/templates/` (or `$XDG_CONFIG_HOME/co/templates/`).
+
+### Template Manifest
+
+Each template has a `template.json` file:
+
+```json
+{
+  "name": "fullstack",
+  "description": "Full-stack web application with frontend and backend",
+  "variables": [
+    {
+      "name": "port",
+      "type": "integer",
+      "default": 3000,
+      "description": "Development server port"
+    },
+    {
+      "name": "db_type",
+      "type": "choice",
+      "choices": ["postgres", "mysql", "sqlite"],
+      "default": "postgres",
+      "required": true
+    }
+  ],
+  "repos": [
+    {
+      "name": "frontend",
+      "clone_url": "https://github.com/example/frontend-template.git",
+      "tags": ["web", "react"]
+    },
+    {
+      "name": "backend",
+      "init": true,
+      "tags": ["api"]
+    }
+  ],
+  "files": {
+    "include": ["**/*"],
+    "exclude": ["template.json", "*.md"]
+  },
+  "hooks": {
+    "post_create": "echo 'Workspace created!'",
+    "post_clone": {
+      "command": "./setup.sh",
+      "env": {"PORT": "{{port}}"}
+    }
+  },
+  "tags": ["web", "fullstack"],
+  "state": "active"
+}
+```
+
+### Built-in Variables
+
+These variables are automatically available in all templates:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `owner` | Workspace owner | `acme` |
+| `project` | Project name | `dashboard` |
+| `slug` | Full workspace slug | `acme--dashboard` |
+| `workspace_path` | Absolute path | `/Users/you/Code/acme--dashboard` |
+| `code_root` | Code root directory | `/Users/you/Code` |
+
+### Variable Substitution
+
+Template files support `{{variable}}` substitution:
+
+```yaml
+# docker-compose.yml
+services:
+  app:
+    ports:
+      - "{{port}}:{{port}}"
+    environment:
+      DB_TYPE: {{db_type}}
+      PROJECT: {{project}}
+```
+
+### Variable Types
+
+| Type | Description |
+|------|-------------|
+| `string` | Free-form text |
+| `integer` | Whole numbers |
+| `boolean` | true/false (prompted as yes/no toggle) |
+| `choice` | Selection from predefined list |
+
+### Lifecycle Hooks
+
+Templates support hooks that run at different stages:
+
+| Hook | When it runs |
+|------|--------------|
+| `pre_create` | Before workspace directory is created |
+| `post_create` | After workspace structure is created |
+| `post_clone` | After each repo is cloned |
+| `post_complete` | After all setup is complete |
+| `post_migrate` | After applying template to existing workspace |
+
+Hooks can be a simple command string or an object with `command`, `workdir`, and `env` fields.
+
+### Global Template Files
+
+Files in `~/Code/_system/templates/_global/` are copied to every workspace created with any template. Use this for shared configuration like `.editorconfig`, `.gitattributes`, or shared scripts.
+
+### Creating Templates
+
+1. Create a directory in `~/Code/_system/templates/`:
+   ```bash
+   mkdir -p ~/Code/_system/templates/my-template
+   ```
+
+2. Add a `template.json` manifest:
+   ```json
+   {
+     "name": "my-template",
+     "description": "My custom workspace template"
+   }
+   ```
+
+3. Add any files you want copied to new workspaces.
+
+4. Use the template:
+   ```bash
+   co new acme project -t my-template
+   ```
 
 ---
 
@@ -584,6 +765,7 @@ The TUI provides:
 │   ├── model/               # Data structures (project, index)
 │   ├── search/              # Vector search indexing + querying
 │   ├── sync/                # Remote sync (rsync/tar transport)
+│   ├── template/            # Workspace templates + variable substitution
 │   ├── tui/                 # Bubble Tea models/views
 │   └── vectordb/            # SQLite + sqlite-vec database
 ├── build/                   # Build output
