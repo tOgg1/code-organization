@@ -14,34 +14,50 @@ var templateNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 // ListTemplates returns all available templates in the templates directory.
 func ListTemplates(templatesDir string) ([]Template, error) {
-	entries, err := os.ReadDir(templatesDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []Template{}, nil
-		}
-		return nil, fmt.Errorf("reading templates directory: %w", err)
-	}
+	return ListTemplatesMulti([]string{templatesDir})
+}
 
+// ListTemplatesMulti returns all available templates from multiple directories.
+// Templates in earlier directories take precedence over later ones.
+func ListTemplatesMulti(templatesDirs []string) ([]Template, error) {
+	seen := make(map[string]bool)
 	var templates []Template
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
 
-		name := entry.Name()
-		// Skip _global directory and hidden directories
-		if name == GlobalTemplateDir || strings.HasPrefix(name, ".") {
-			continue
-		}
-
-		// Check if it has a valid template.json
-		tmpl, err := LoadTemplate(templatesDir, name)
+	for _, dir := range templatesDirs {
+		entries, err := os.ReadDir(dir)
 		if err != nil {
-			// Skip invalid templates in listing, but could log warning
-			continue
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("reading templates directory %s: %w", dir, err)
 		}
 
-		templates = append(templates, *tmpl)
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			name := entry.Name()
+			// Skip _global directory and hidden directories
+			if name == GlobalTemplateDir || strings.HasPrefix(name, ".") {
+				continue
+			}
+
+			// Skip if already seen (earlier directory takes precedence)
+			if seen[name] {
+				continue
+			}
+
+			// Check if it has a valid template.json
+			tmpl, err := LoadTemplate(dir, name)
+			if err != nil {
+				// Skip invalid templates in listing, but could log warning
+				continue
+			}
+
+			seen[name] = true
+			templates = append(templates, *tmpl)
+		}
 	}
 
 	return templates, nil
@@ -49,7 +65,12 @@ func ListTemplates(templatesDir string) ([]Template, error) {
 
 // ListTemplateInfos returns summary information for all templates.
 func ListTemplateInfos(templatesDir string) ([]TemplateInfo, error) {
-	templates, err := ListTemplates(templatesDir)
+	return ListTemplateInfosMulti([]string{templatesDir})
+}
+
+// ListTemplateInfosMulti returns summary information for templates from multiple directories.
+func ListTemplateInfosMulti(templatesDirs []string) ([]TemplateInfo, error) {
+	templates, err := ListTemplatesMulti(templatesDirs)
 	if err != nil {
 		return nil, err
 	}
@@ -113,16 +134,57 @@ func LoadTemplate(templatesDir, name string) (*Template, error) {
 	return &tmpl, nil
 }
 
+// LoadTemplateMulti loads a template by searching multiple directories in order.
+// Returns the template from the first directory where it's found.
+func LoadTemplateMulti(templatesDirs []string, name string) (*Template, string, error) {
+	if name == "" {
+		return nil, "", &ValidationError{Field: "name", Reason: "template name is required"}
+	}
+
+	for _, dir := range templatesDirs {
+		tmpl, err := LoadTemplate(dir, name)
+		if err == nil {
+			return tmpl, dir, nil
+		}
+		// Continue searching if template not found in this directory
+		if _, ok := err.(*TemplateNotFoundError); ok {
+			continue
+		}
+		// Return other errors immediately
+		return nil, "", err
+	}
+
+	return nil, "", &TemplateNotFoundError{Name: name}
+}
+
+// FindTemplateDir returns the directory containing a template, searching multiple directories.
+func FindTemplateDir(templatesDirs []string, name string) (string, error) {
+	for _, dir := range templatesDirs {
+		templatePath := filepath.Join(dir, name)
+		manifestPath := filepath.Join(templatePath, TemplateManifestFile)
+		if _, err := os.Stat(manifestPath); err == nil {
+			return dir, nil
+		}
+	}
+	return "", &TemplateNotFoundError{Name: name}
+}
+
 // TemplateExists checks if a template exists by name.
 func TemplateExists(templatesDir, name string) bool {
-	templatePath := filepath.Join(templatesDir, name)
-	manifestPath := filepath.Join(templatePath, TemplateManifestFile)
+	return TemplateExistsMulti([]string{templatesDir}, name)
+}
 
-	info, err := os.Stat(manifestPath)
-	if err != nil {
-		return false
+// TemplateExistsMulti checks if a template exists in any of the given directories.
+func TemplateExistsMulti(templatesDirs []string, name string) bool {
+	for _, dir := range templatesDirs {
+		templatePath := filepath.Join(dir, name)
+		manifestPath := filepath.Join(templatePath, TemplateManifestFile)
+		info, err := os.Stat(manifestPath)
+		if err == nil && !info.IsDir() {
+			return true
+		}
 	}
-	return !info.IsDir()
+	return false
 }
 
 // GetGlobalFilesPath returns the path to the _global template directory.
@@ -130,14 +192,26 @@ func GetGlobalFilesPath(templatesDir string) string {
 	return filepath.Join(templatesDir, GlobalTemplateDir)
 }
 
+// GetGlobalFilesPaths returns all _global directories that exist, in priority order.
+func GetGlobalFilesPaths(templatesDirs []string) []string {
+	var paths []string
+	for _, dir := range templatesDirs {
+		globalPath := filepath.Join(dir, GlobalTemplateDir)
+		if info, err := os.Stat(globalPath); err == nil && info.IsDir() {
+			paths = append(paths, globalPath)
+		}
+	}
+	return paths
+}
+
 // HasGlobalFiles checks if global template files exist.
 func HasGlobalFiles(templatesDir string) bool {
-	globalPath := GetGlobalFilesPath(templatesDir)
-	info, err := os.Stat(globalPath)
-	if err != nil {
-		return false
-	}
-	return info.IsDir()
+	return HasGlobalFilesMulti([]string{templatesDir})
+}
+
+// HasGlobalFilesMulti checks if global template files exist in any of the directories.
+func HasGlobalFilesMulti(templatesDirs []string) bool {
+	return len(GetGlobalFilesPaths(templatesDirs)) > 0
 }
 
 // GetTemplateFilesPath returns the path to a template's files directory.
