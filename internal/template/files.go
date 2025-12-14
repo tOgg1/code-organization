@@ -5,14 +5,225 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
+
+// OriginType indicates where a file comes from.
+type OriginType string
+
+const (
+	OriginGlobal   OriginType = "global"
+	OriginTemplate OriginType = "template"
+)
+
+// OutputMapping represents a file that would be created in the workspace.
+type OutputMapping struct {
+	OutputPath   string     // Workspace-relative output path (after stripping .tmpl)
+	SourcePath   string     // Absolute path to source file
+	OriginType   OriginType // Whether from global or template
+	OriginDir    string     // The templates directory or template path this came from
+	IsOverride   bool       // True if this template file overrides a global file
+	IsTemplate   bool       // True if source is a template file (.tmpl)
+	SourceRel    string     // Relative path within origin (for display)
+	OverriddenBy string     // If overridden, the path of the overriding file
+}
+
+// BuildOutputMapping builds a map of output paths to their source files.
+// This shows the effective set of files that would be created, with origin info.
+// Returns mappings sorted by output path.
+func BuildOutputMapping(tmpl *Template, templatesDirs []string, templatePath string) ([]OutputMapping, error) {
+	// Map output path -> mapping (allows tracking overrides)
+	outputMap := make(map[string]*OutputMapping)
+	extensions := []string{".tmpl"}
+
+	// Determine skip list from template
+	var skipList []string
+	switch v := tmpl.SkipGlobalFiles.(type) {
+	case bool:
+		if v {
+			skipList = nil // Will skip all - handled below
+		}
+	case []string:
+		skipList = v
+	case []interface{}:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				skipList = append(skipList, s)
+			}
+		}
+	}
+
+	// Skip all global files if SkipGlobalFiles is true
+	skipAllGlobal := false
+	if b, ok := tmpl.SkipGlobalFiles.(bool); ok && b {
+		skipAllGlobal = true
+	}
+
+	// Process global files from all directories (first wins among globals)
+	if !skipAllGlobal {
+		for _, templatesDir := range templatesDirs {
+			globalPath := GetGlobalFilesPath(templatesDir)
+
+			if _, err := os.Stat(globalPath); os.IsNotExist(err) {
+				continue
+			}
+
+			err := filepath.Walk(globalPath, func(srcPath string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+
+				if info.IsDir() {
+					return nil
+				}
+
+				relPath, err := filepath.Rel(globalPath, srcPath)
+				if err != nil {
+					return err
+				}
+
+				// Check if this file should be skipped
+				for _, skip := range skipList {
+					if relPath == skip || filepath.Base(relPath) == skip {
+						return nil
+					}
+				}
+
+				// Determine output path
+				outputPath := relPath
+				isTemplate := IsTemplateFile(relPath, extensions)
+				if isTemplate {
+					outputPath = StripTemplateExtension(relPath, extensions)
+				}
+
+				// Skip if already seen from earlier global directory
+				if _, exists := outputMap[outputPath]; exists {
+					return nil
+				}
+
+				outputMap[outputPath] = &OutputMapping{
+					OutputPath: outputPath,
+					SourcePath: srcPath,
+					OriginType: OriginGlobal,
+					OriginDir:  templatesDir,
+					IsTemplate: isTemplate,
+					SourceRel:  filepath.Join("_global", relPath),
+				}
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("walking global dir %s: %w", globalPath, err)
+			}
+		}
+	}
+
+	// Process template files (may override global files)
+	filesPath := filepath.Join(templatePath, TemplateFilesDir)
+	if _, err := os.Stat(filesPath); err == nil {
+		tmplExtensions := tmpl.GetTemplateExtensions()
+		include := tmpl.Files.Include
+		exclude := tmpl.Files.Exclude
+
+		err := filepath.Walk(filesPath, func(srcPath string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if info.IsDir() {
+				return nil
+			}
+
+			relPath, err := filepath.Rel(filesPath, srcPath)
+			if err != nil {
+				return err
+			}
+
+			// Check include/exclude patterns
+			if !ShouldIncludeFile(relPath, include, exclude) {
+				return nil
+			}
+
+			// Determine output path
+			outputPath := relPath
+			isTemplate := IsTemplateFile(relPath, tmplExtensions)
+			if isTemplate {
+				outputPath = StripTemplateExtension(relPath, tmplExtensions)
+			}
+
+			// Check if this overrides a global file
+			isOverride := false
+			var overriddenSource string
+			if existing, exists := outputMap[outputPath]; exists && existing.OriginType == OriginGlobal {
+				isOverride = true
+				overriddenSource = existing.SourcePath
+				existing.OverriddenBy = srcPath
+			}
+
+			outputMap[outputPath] = &OutputMapping{
+				OutputPath: outputPath,
+				SourcePath: srcPath,
+				OriginType: OriginTemplate,
+				OriginDir:  templatePath,
+				IsOverride: isOverride,
+				IsTemplate: isTemplate,
+				SourceRel:  filepath.Join(TemplateFilesDir, relPath),
+			}
+
+			// Keep track of what was overridden for reference
+			if isOverride && overriddenSource != "" {
+				// Store the overridden global mapping separately if needed
+				_ = overriddenSource
+			}
+
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("walking template files %s: %w", filesPath, err)
+		}
+	}
+
+	// Convert map to sorted slice
+	result := make([]OutputMapping, 0, len(outputMap))
+	for _, mapping := range outputMap {
+		result = append(result, *mapping)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].OutputPath < result[j].OutputPath
+	})
+
+	return result, nil
+}
+
+// GetOverriddenGlobalFiles returns global files that would be overridden by template files.
+func GetOverriddenGlobalFiles(tmpl *Template, templatesDirs []string, templatePath string) ([]OutputMapping, error) {
+	mappings, err := BuildOutputMapping(tmpl, templatesDirs, templatePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var overridden []OutputMapping
+	for _, m := range mappings {
+		if m.IsOverride {
+			overridden = append(overridden, m)
+		}
+	}
+	return overridden, nil
+}
 
 // ShouldIncludeFile checks if a file should be included based on include/exclude patterns.
 // Uses the PatternMatcher from pattern.go for glob matching.
 func ShouldIncludeFile(path string, include, exclude []string) bool {
 	pm := NewPatternMatcher(include, exclude)
 	return pm.Match(path)
+}
+
+// GetFileMatchDetails returns detailed information about why a file is included or excluded.
+// This is useful for debugging include/exclude patterns.
+func GetFileMatchDetails(path string, include, exclude []string) MatchResult {
+	pm := NewPatternMatcher(include, exclude)
+	return pm.MatchWithDetails(path)
 }
 
 // ProcessGlobalFiles copies and processes files from the _global directory.
