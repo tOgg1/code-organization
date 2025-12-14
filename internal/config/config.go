@@ -170,9 +170,25 @@ func (c *Config) CacheDir() string {
 	return filepath.Join(c.SystemDir(), "cache")
 }
 
-// TemplatesDir returns the path to the templates directory.
+// TemplatesDir returns the path to the primary templates directory.
 func (c *Config) TemplatesDir() string {
 	return filepath.Join(c.SystemDir(), "templates")
+}
+
+// FallbackTemplatesDir returns the XDG config templates directory for backwards compatibility.
+func (c *Config) FallbackTemplatesDir() string {
+	xdgConfig := os.Getenv("XDG_CONFIG_HOME")
+	if xdgConfig == "" {
+		home, _ := os.UserHomeDir()
+		xdgConfig = filepath.Join(home, ".config")
+	}
+	return filepath.Join(xdgConfig, "co", "templates")
+}
+
+// AllTemplatesDirs returns all template directories to search, in priority order.
+// Primary (_system/templates) is checked first, then fallback (XDG config).
+func (c *Config) AllTemplatesDirs() []string {
+	return []string{c.TemplatesDir(), c.FallbackTemplatesDir()}
 }
 
 func (c *Config) WorkspacePath(slug string) string {
