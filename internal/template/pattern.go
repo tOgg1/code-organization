@@ -5,6 +5,14 @@ import (
 	"strings"
 )
 
+// MatchResult contains details about a pattern match decision.
+type MatchResult struct {
+	Included       bool   // Whether the file is included
+	MatchedPattern string // The pattern that matched (empty if default rule)
+	Rule           string // "include", "exclude", or "default"
+	Reason         string // Human-readable explanation
+}
+
 // PatternMatcher handles file pattern matching for include/exclude globs.
 type PatternMatcher struct {
 	includePatterns []string
@@ -23,29 +31,55 @@ func NewPatternMatcher(include, exclude []string) *PatternMatcher {
 // Match returns true if the path should be included based on include/exclude patterns.
 // The path should be relative to the template files directory.
 func (pm *PatternMatcher) Match(path string) bool {
+	return pm.MatchWithDetails(path).Included
+}
+
+// MatchWithDetails returns detailed information about why a path is included or excluded.
+// This is useful for debugging include/exclude patterns.
+func (pm *PatternMatcher) MatchWithDetails(path string) MatchResult {
 	// Normalize path separators
 	path = filepath.ToSlash(path)
 
 	// Check exclude patterns first - exclude takes precedence
 	for _, pattern := range pm.excludePatterns {
 		if MatchGlob(pattern, path) {
-			return false
+			return MatchResult{
+				Included:       false,
+				MatchedPattern: pattern,
+				Rule:           "exclude",
+				Reason:         "excluded by pattern: " + pattern,
+			}
 		}
 	}
 
 	// If no include patterns, include everything not excluded
 	if len(pm.includePatterns) == 0 {
-		return true
+		return MatchResult{
+			Included:       true,
+			MatchedPattern: "",
+			Rule:           "default",
+			Reason:         "included by default (no include patterns defined)",
+		}
 	}
 
 	// Check include patterns
 	for _, pattern := range pm.includePatterns {
 		if MatchGlob(pattern, path) {
-			return true
+			return MatchResult{
+				Included:       true,
+				MatchedPattern: pattern,
+				Rule:           "include",
+				Reason:         "included by pattern: " + pattern,
+			}
 		}
 	}
 
-	return false
+	return MatchResult{
+		Included:       false,
+		MatchedPattern: "",
+		Rule:           "not_matched",
+		Reason:         "not matched by any include pattern",
+	}
 }
 
 // MatchGlob matches a glob pattern against a path.
