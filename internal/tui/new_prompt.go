@@ -6,12 +6,22 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/tormodhaugland/co/internal/template"
 )
 
 type NewPromptResult struct {
 	Owner   string
 	Project string
 	Abort   bool
+}
+
+// NewWorkspacePromptResult holds the result of the full new workspace prompt flow.
+type NewWorkspacePromptResult struct {
+	Owner        string
+	Project      string
+	TemplateName string            // Empty string means no template
+	Variables    map[string]string // Template variables (includes builtins)
+	Abort        bool
 }
 
 type newPromptModel struct {
@@ -139,5 +149,73 @@ func RunNewPrompt() (NewPromptResult, error) {
 	}
 
 	result := finalModel.(newPromptModel).result
+	return result, nil
+}
+
+// RunNewWorkspacePrompt runs the full new workspace prompt flow:
+// 1. Template selection
+// 2. Owner/project input
+// 3. Variable prompting (if template has variables)
+//
+// If templates is empty, skips template selection.
+// If codeRoot is provided, used for builtin variable resolution.
+func RunNewWorkspacePrompt(templates []template.TemplateInfo, templatesDir, codeRoot string) (NewWorkspacePromptResult, error) {
+	result := NewWorkspacePromptResult{
+		Variables: make(map[string]string),
+	}
+
+	// Step 1: Template selection (if templates available)
+	if len(templates) > 0 {
+		tmplResult, err := RunTemplateSelect(templates)
+		if err != nil {
+			return NewWorkspacePromptResult{Abort: true}, err
+		}
+		if tmplResult.Abort {
+			return NewWorkspacePromptResult{Abort: true}, nil
+		}
+		result.TemplateName = tmplResult.Selected
+	}
+
+	// Step 2: Owner/project prompt
+	ownerProjectResult, err := RunNewPrompt()
+	if err != nil {
+		return NewWorkspacePromptResult{Abort: true}, err
+	}
+	if ownerProjectResult.Abort {
+		return NewWorkspacePromptResult{Abort: true}, nil
+	}
+	result.Owner = ownerProjectResult.Owner
+	result.Project = ownerProjectResult.Project
+
+	// Step 3: Variable prompting (if template selected and has variables)
+	if result.TemplateName != "" && templatesDir != "" {
+		tmpl, err := template.LoadTemplate(templatesDir, result.TemplateName)
+		if err != nil {
+			return NewWorkspacePromptResult{Abort: true}, fmt.Errorf("failed to load template: %w", err)
+		}
+
+		// Get builtin variables
+		workspacePath := ""
+		if codeRoot != "" {
+			slug := result.Owner + "--" + result.Project
+			workspacePath = codeRoot + "/" + slug
+		}
+		builtins := template.GetBuiltinVariables(result.Owner, result.Project, workspacePath, codeRoot)
+
+		// Only prompt for variables that need input
+		if len(tmpl.Variables) > 0 {
+			varResult, err := RunVariablePrompt(tmpl.Variables, builtins)
+			if err != nil {
+				return NewWorkspacePromptResult{Abort: true}, err
+			}
+			if varResult.Abort {
+				return NewWorkspacePromptResult{Abort: true}, nil
+			}
+			result.Variables = varResult.Variables
+		} else {
+			result.Variables = builtins
+		}
+	}
+
 	return result, nil
 }

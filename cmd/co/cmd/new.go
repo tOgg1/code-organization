@@ -58,13 +58,19 @@ Template Support:
 
 		var owner, project string
 		var repoURLs []string
+		var selectedTemplate string
+		var promptedVars map[string]string
 
 		if len(args) >= 2 {
 			owner = strings.ToLower(args[0])
 			project = strings.ToLower(args[1])
 			repoURLs = args[2:]
+			selectedTemplate = newTemplateName // Use -t flag if provided
 		} else {
-			result, err := tui.RunNewPrompt()
+			// Interactive mode: run full prompt flow with template selection
+			templates, _ := template.ListTemplateInfos(cfg.TemplatesDir())
+
+			result, err := tui.RunNewWorkspacePrompt(templates, cfg.TemplatesDir(), cfg.CodeRoot)
 			if err != nil {
 				return fmt.Errorf("prompt failed: %w", err)
 			}
@@ -73,6 +79,8 @@ Template Support:
 			}
 			owner = result.Owner
 			project = result.Project
+			selectedTemplate = result.TemplateName
+			promptedVars = result.Variables
 		}
 
 		slug := owner + "--" + project
@@ -84,8 +92,14 @@ Template Support:
 			return fmt.Errorf("workspace already exists: %s", slug)
 		}
 
-		// If template is specified, use template-based creation
-		if newTemplateName != "" {
+		// If template is specified (via flag or interactive selection), use template-based creation
+		if selectedTemplate != "" {
+			// If variables were collected interactively, use them
+			if promptedVars != nil {
+				newTemplateVars = nil // Clear flag-based vars
+				return createWithTemplateAndVars(cfg, owner, project, selectedTemplate, promptedVars, repoURLs)
+			}
+			newTemplateName = selectedTemplate
 			return createWithTemplate(cfg, owner, project, repoURLs)
 		}
 
@@ -117,6 +131,73 @@ Template Support:
 		fmt.Printf("Created workspace: %s\n", workspacePath)
 		return nil
 	},
+}
+
+// createWithTemplateAndVars creates a workspace using pre-collected variables (from TUI prompts).
+func createWithTemplateAndVars(cfg *config.Config, owner, project, templateName string, vars map[string]string, extraRepoURLs []string) error {
+	opts := template.CreateOptions{
+		TemplateName: templateName,
+		Variables:    vars,
+		NoHooks:      newNoHooks,
+		DryRun:       newDryRun,
+		Verbose:      true,
+	}
+
+	result, err := template.CreateWorkspace(cfg, owner, project, opts)
+	if err != nil {
+		return err
+	}
+
+	// Handle extra repo URLs not in template
+	if len(extraRepoURLs) > 0 && !newDryRun {
+		for _, url := range extraRepoURLs {
+			repoName := deriveRepoName(url)
+			repoPath := filepath.Join(result.WorkspacePath, "repos", repoName)
+
+			fmt.Printf("Cloning %s into repos/%s...\n", url, repoName)
+			if err := git.Clone(url, repoPath); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to clone %s: %v\n", url, err)
+			}
+		}
+	}
+
+	// Output result
+	if jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}
+
+	if newDryRun {
+		fmt.Println("Dry run - no changes made")
+		fmt.Printf("Would create workspace: %s\n", result.WorkspacePath)
+		fmt.Printf("Template: %s\n", result.TemplateUsed)
+		fmt.Printf("Files: %d global + %d template = %d total\n",
+			result.GlobalFiles, result.TemplateFiles, result.FilesCreated)
+		fmt.Printf("Repos: %d\n", result.ReposCreated)
+		return nil
+	}
+
+	fmt.Printf("Created workspace: %s\n", result.WorkspacePath)
+	fmt.Printf("  Template: %s\n", result.TemplateUsed)
+	fmt.Printf("  Files created: %d\n", result.FilesCreated)
+	if result.ReposCreated > 0 {
+		fmt.Printf("  Repos initialized: %d\n", result.ReposCreated)
+	}
+	if result.ReposCloned > 0 {
+		fmt.Printf("  Repos cloned: %d\n", result.ReposCloned)
+	}
+	if len(result.HooksRun) > 0 {
+		fmt.Printf("  Hooks run: %s\n", strings.Join(result.HooksRun, ", "))
+	}
+	if len(result.Warnings) > 0 {
+		fmt.Println("  Warnings:")
+		for _, w := range result.Warnings {
+			fmt.Printf("    - %s\n", w)
+		}
+	}
+
+	return nil
 }
 
 func createWithTemplate(cfg *config.Config, owner, project string, extraRepoURLs []string) error {
