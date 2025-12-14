@@ -7,6 +7,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+	"github.com/tormodhaugland/co/internal/archive"
 	"github.com/tormodhaugland/co/internal/config"
 	"github.com/tormodhaugland/co/internal/model"
 )
@@ -25,6 +26,10 @@ var lsCmd = &cobra.Command{
 		cfg, err := config.Load(cfgFile)
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		if lsState == "archived" {
+			return listArchived(cfg)
 		}
 
 		idx, err := model.LoadIndex(cfg.IndexPath())
@@ -62,6 +67,37 @@ var lsCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+func listArchived(cfg *config.Config) error {
+	entries, err := archive.ListArchives(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to list archives: %w", err)
+	}
+
+	if jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(entries)
+	}
+
+	if len(entries) == 0 {
+		fmt.Println("No archived workspaces found")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "SLUG\tARCHIVED AT\tTYPE\tBUNDLES")
+	for _, e := range entries {
+		archiveType := "bundles"
+		if e.FullArchive {
+			archiveType = "full"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", e.Slug, e.ArchivedAt.Format("2006-01-02 15:04"), archiveType, e.BundleCount)
+	}
+	w.Flush()
+
+	return nil
 }
 
 func filterByOwner(records []*model.IndexRecord, owner string) []*model.IndexRecord {

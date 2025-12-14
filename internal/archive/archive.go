@@ -1,11 +1,16 @@
 package archive
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/tormodhaugland/co/internal/config"
@@ -161,4 +166,110 @@ func copyFile(src, dst string) error {
 func createTarGz(srcDir, dstPath string) error {
 	cmd := exec.Command("tar", "-czf", dstPath, "-C", srcDir, ".")
 	return cmd.Run()
+}
+
+type ArchiveEntry struct {
+	Slug        string    `json:"slug"`
+	ArchivedAt  time.Time `json:"archived_at"`
+	Path        string    `json:"path"`
+	FullArchive bool      `json:"full_archive"`
+	Reason      string    `json:"reason,omitempty"`
+	BundleCount int       `json:"bundle_count"`
+}
+
+var archiveFilePattern = regexp.MustCompile(`^(.+)--(\d{8}-\d{6})(--full)?\.tar\.gz$`)
+
+func ListArchives(cfg *config.Config) ([]ArchiveEntry, error) {
+	archiveRoot := cfg.ArchiveDir()
+	var entries []ArchiveEntry
+
+	years, err := os.ReadDir(archiveRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return entries, nil
+		}
+		return nil, err
+	}
+
+	for _, yearDir := range years {
+		if !yearDir.IsDir() {
+			continue
+		}
+
+		yearPath := filepath.Join(archiveRoot, yearDir.Name())
+		files, err := os.ReadDir(yearPath)
+		if err != nil {
+			continue
+		}
+
+		for _, file := range files {
+			if file.IsDir() || !strings.HasSuffix(file.Name(), ".tar.gz") {
+				continue
+			}
+
+			matches := archiveFilePattern.FindStringSubmatch(file.Name())
+			if matches == nil {
+				continue
+			}
+
+			slug := matches[1]
+			timestamp := matches[2]
+			fullArchive := matches[3] == "--full"
+
+			archivedAt, _ := time.Parse("20060102-150405", timestamp)
+
+			entry := ArchiveEntry{
+				Slug:        slug,
+				ArchivedAt:  archivedAt,
+				Path:        filepath.Join(yearPath, file.Name()),
+				FullArchive: fullArchive,
+			}
+
+			meta, err := readArchiveMeta(entry.Path)
+			if err == nil && meta != nil {
+				entry.Reason = meta.Reason
+				entry.BundleCount = meta.BundleCount
+			}
+
+			entries = append(entries, entry)
+		}
+	}
+
+	return entries, nil
+}
+
+func readArchiveMeta(archivePath string) (*ArchiveMeta, error) {
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	gzr, err := gzip.NewReader(file)
+	if err != nil {
+		return nil, err
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		if strings.HasSuffix(header.Name, "archive-meta.json") {
+			var meta ArchiveMeta
+			if err := json.NewDecoder(tr).Decode(&meta); err != nil {
+				return nil, err
+			}
+			return &meta, nil
+		}
+	}
+
+	return nil, nil
 }
