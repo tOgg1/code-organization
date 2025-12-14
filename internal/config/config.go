@@ -11,11 +11,58 @@ type ServerConfig struct {
 	CodeRoot string `json:"code_root,omitempty"`
 }
 
+// EmbeddingsConfig holds configuration for the embedding backend
+type EmbeddingsConfig struct {
+	// Backend is the embedding backend to use: "ollama" (default) or "openai"
+	Backend string `json:"backend,omitempty"`
+
+	// OllamaURL is the URL of the Ollama server (default: http://localhost:11434)
+	OllamaURL string `json:"ollama_url,omitempty"`
+
+	// OllamaModel is the Ollama model to use (default: nomic-embed-text)
+	OllamaModel string `json:"ollama_model,omitempty"`
+
+	// OpenAIModel is the OpenAI model to use (default: text-embedding-3-small)
+	OpenAIModel string `json:"openai_model,omitempty"`
+
+	// OpenAIAPIKeyEnv is the environment variable containing the OpenAI API key
+	OpenAIAPIKeyEnv string `json:"openai_api_key_env,omitempty"`
+}
+
+// IndexingConfig holds configuration for code indexing
+type IndexingConfig struct {
+	// ChunkMaxLines is the maximum number of lines per chunk (default: 100)
+	ChunkMaxLines int `json:"chunk_max_lines,omitempty"`
+
+	// ChunkMinLines is the minimum number of lines for a chunk (default: 5)
+	ChunkMinLines int `json:"chunk_min_lines,omitempty"`
+
+	// ChunkOverlapLines is the number of context lines around chunks (default: 3)
+	ChunkOverlapLines int `json:"chunk_overlap_lines,omitempty"`
+
+	// ExcludePatterns are glob patterns for files to exclude from indexing
+	ExcludePatterns []string `json:"exclude_patterns,omitempty"`
+
+	// IncludeLanguages limits indexing to specific languages (if empty, all supported)
+	IncludeLanguages []string `json:"include_languages,omitempty"`
+
+	// MaxFileSizeBytes is the maximum file size to index (default: 1MB)
+	MaxFileSizeBytes int64 `json:"max_file_size_bytes,omitempty"`
+
+	// BatchSize is the number of chunks to embed in a single batch (default: 50)
+	BatchSize int `json:"batch_size,omitempty"`
+
+	// Workers is the number of concurrent file processing workers (default: 4)
+	Workers int `json:"workers,omitempty"`
+}
+
 type Config struct {
-	Schema   int                     `json:"schema"`
-	CodeRoot string                  `json:"code_root"`
-	Editor   string                  `json:"editor,omitempty"`
-	Servers  map[string]ServerConfig `json:"servers,omitempty"`
+	Schema     int                     `json:"schema"`
+	CodeRoot   string                  `json:"code_root"`
+	Editor     string                  `json:"editor,omitempty"`
+	Servers    map[string]ServerConfig `json:"servers,omitempty"`
+	Embeddings *EmbeddingsConfig       `json:"embeddings,omitempty"`
+	Indexing   *IndexingConfig         `json:"indexing,omitempty"`
 }
 
 const CurrentConfigSchema = 1
@@ -125,4 +172,89 @@ func (c *Config) CacheDir() string {
 
 func (c *Config) WorkspacePath(slug string) string {
 	return filepath.Join(c.CodeRoot, slug)
+}
+
+// VectorsDBPath returns the path to the vector search database
+func (c *Config) VectorsDBPath() string {
+	return filepath.Join(c.SystemDir(), "vectors.db")
+}
+
+// GetEmbeddingsConfig returns the embeddings config with defaults applied
+func (c *Config) GetEmbeddingsConfig() EmbeddingsConfig {
+	cfg := EmbeddingsConfig{
+		Backend:         "ollama",
+		OllamaURL:       "http://localhost:11434",
+		OllamaModel:     "nomic-embed-text",
+		OpenAIModel:     "text-embedding-3-small",
+		OpenAIAPIKeyEnv: "OPENAI_API_KEY",
+	}
+
+	if c.Embeddings != nil {
+		if c.Embeddings.Backend != "" {
+			cfg.Backend = c.Embeddings.Backend
+		}
+		if c.Embeddings.OllamaURL != "" {
+			cfg.OllamaURL = c.Embeddings.OllamaURL
+		}
+		if c.Embeddings.OllamaModel != "" {
+			cfg.OllamaModel = c.Embeddings.OllamaModel
+		}
+		if c.Embeddings.OpenAIModel != "" {
+			cfg.OpenAIModel = c.Embeddings.OpenAIModel
+		}
+		if c.Embeddings.OpenAIAPIKeyEnv != "" {
+			cfg.OpenAIAPIKeyEnv = c.Embeddings.OpenAIAPIKeyEnv
+		}
+	}
+
+	return cfg
+}
+
+// GetIndexingConfig returns the indexing config with defaults applied
+func (c *Config) GetIndexingConfig() IndexingConfig {
+	cfg := IndexingConfig{
+		ChunkMaxLines:     100,
+		ChunkMinLines:     5,
+		ChunkOverlapLines: 3,
+		MaxFileSizeBytes:  1024 * 1024, // 1MB
+		BatchSize:         50,
+		Workers:           4,
+		ExcludePatterns: []string{
+			"**/node_modules/**",
+			"**/vendor/**",
+			"**/.git/**",
+			"**/target/**",
+			"**/dist/**",
+			"**/build/**",
+		},
+	}
+
+	if c.Indexing != nil {
+		if c.Indexing.ChunkMaxLines > 0 {
+			cfg.ChunkMaxLines = c.Indexing.ChunkMaxLines
+		}
+		if c.Indexing.ChunkMinLines > 0 {
+			cfg.ChunkMinLines = c.Indexing.ChunkMinLines
+		}
+		if c.Indexing.ChunkOverlapLines > 0 {
+			cfg.ChunkOverlapLines = c.Indexing.ChunkOverlapLines
+		}
+		if c.Indexing.MaxFileSizeBytes > 0 {
+			cfg.MaxFileSizeBytes = c.Indexing.MaxFileSizeBytes
+		}
+		if c.Indexing.BatchSize > 0 {
+			cfg.BatchSize = c.Indexing.BatchSize
+		}
+		if c.Indexing.Workers > 0 {
+			cfg.Workers = c.Indexing.Workers
+		}
+		if len(c.Indexing.ExcludePatterns) > 0 {
+			cfg.ExcludePatterns = c.Indexing.ExcludePatterns
+		}
+		if len(c.Indexing.IncludeLanguages) > 0 {
+			cfg.IncludeLanguages = c.Indexing.IncludeLanguages
+		}
+	}
+
+	return cfg
 }
