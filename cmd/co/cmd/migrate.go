@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,14 +12,18 @@ import (
 	"github.com/tormodhaugland/co/internal/fs"
 	"github.com/tormodhaugland/co/internal/git"
 	"github.com/tormodhaugland/co/internal/model"
+	"github.com/tormodhaugland/co/internal/template"
 	"github.com/tormodhaugland/co/internal/tui"
 )
 
 var (
-	migrateOwner   string
-	migrateProject string
-	migrateDryRun  bool
-	migrateAddTo   string
+	migrateOwner        string
+	migrateProject      string
+	migrateDryRun       bool
+	migrateAddTo        string
+	migrateTemplateName string
+	migrateTemplateVars []string
+	migrateNoHooks      bool
 )
 
 var migrateCmd = &cobra.Command{
@@ -32,7 +37,12 @@ workspace structure (project.json + repos/).
 If the source folder itself is a git repo, it becomes the single repo.
 If the source contains multiple git repos, each becomes a separate repo.
 
-Use --add-to to add repos to an existing workspace instead of creating a new one.`,
+Use --add-to to add repos to an existing workspace instead of creating a new one.
+
+Template Support:
+  -t, --template <name>  Apply a template after migration
+  -v, --var <key=value>  Set template variable (can be repeated)
+      --no-hooks         Skip running lifecycle hooks`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sourcePath, err := filepath.Abs(args[0])
@@ -249,8 +259,109 @@ func runCreateWorkspace(cfg *config.Config, sourcePath string, gitRoots []string
 	}
 
 	fmt.Printf("\nCreated workspace: %s\n", workspacePath)
+
+	// Apply template if specified
+	if migrateTemplateName != "" {
+		fmt.Printf("\nApplying template: %s\n", migrateTemplateName)
+		if err := applyMigrateTemplate(cfg, workspacePath); err != nil {
+			return fmt.Errorf("failed to apply template: %w", err)
+		}
+	}
+
 	fmt.Printf("Run 'co index' to update the index.\n")
 	return nil
+}
+
+func applyMigrateTemplate(cfg *config.Config, workspacePath string) error {
+	// Load template to check for required variables
+	tmpl, err := template.LoadTemplate(cfg.TemplatesDir(), migrateTemplateName)
+	if err != nil {
+		return err
+	}
+
+	// Parse provided variables
+	providedVars := parseMigrateVarFlags(migrateTemplateVars)
+
+	// Get built-in variables
+	slug := filepath.Base(workspacePath)
+	owner, project := parseSlugForMigrate(slug)
+	builtins := template.GetBuiltinVariables(owner, project, workspacePath, cfg.CodeRoot)
+
+	// Check for missing required variables and prompt
+	missing := template.GetMissingRequiredVars(tmpl, providedVars, builtins)
+	if len(missing) > 0 {
+		fmt.Printf("Template '%s' requires the following variables:\n\n", migrateTemplateName)
+		reader := bufio.NewReader(os.Stdin)
+
+		for _, v := range missing {
+			fmt.Printf("%s", v.Name)
+			if v.Description != "" {
+				fmt.Printf(" (%s)", v.Description)
+			}
+			if v.Type == template.VarTypeChoice && len(v.Choices) > 0 {
+				fmt.Printf(" [choices: %s]", strings.Join(v.Choices, ", "))
+			}
+			fmt.Print(": ")
+
+			input, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("failed to read input: %w", err)
+			}
+			input = strings.TrimSpace(input)
+			if input == "" {
+				return fmt.Errorf("required variable %s not provided", v.Name)
+			}
+			providedVars[v.Name] = input
+		}
+		fmt.Println()
+	}
+
+	// Apply template to existing workspace
+	opts := template.CreateOptions{
+		TemplateName: migrateTemplateName,
+		Variables:    providedVars,
+		NoHooks:      migrateNoHooks,
+		DryRun:       migrateDryRun,
+		Verbose:      true,
+	}
+
+	result, err := template.ApplyTemplateToExisting(cfg, workspacePath, migrateTemplateName, opts)
+	if err != nil {
+		return err
+	}
+
+	// Output result
+	fmt.Printf("  Files created: %d\n", result.FilesCreated)
+	if len(result.HooksRun) > 0 {
+		fmt.Printf("  Hooks run: %s\n", strings.Join(result.HooksRun, ", "))
+	}
+	if len(result.Warnings) > 0 {
+		fmt.Println("  Warnings:")
+		for _, w := range result.Warnings {
+			fmt.Printf("    - %s\n", w)
+		}
+	}
+
+	return nil
+}
+
+func parseMigrateVarFlags(vars []string) map[string]string {
+	result := make(map[string]string)
+	for _, v := range vars {
+		parts := strings.SplitN(v, "=", 2)
+		if len(parts) == 2 {
+			result[parts[0]] = parts[1]
+		}
+	}
+	return result
+}
+
+func parseSlugForMigrate(slug string) (owner, project string) {
+	parts := strings.SplitN(slug, "--", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return slug, slug
 }
 
 func deriveRepoNameFromPath(repoPath, sourcePath string) string {
@@ -327,4 +438,7 @@ func init() {
 	migrateCmd.Flags().StringVarP(&migrateProject, "project", "p", "", "project name (skip prompt)")
 	migrateCmd.Flags().StringVar(&migrateAddTo, "add-to", "", "add repos to existing workspace instead of creating new")
 	migrateCmd.Flags().BoolVar(&migrateDryRun, "dry-run", false, "show what would be done without making changes")
+	migrateCmd.Flags().StringVarP(&migrateTemplateName, "template", "t", "", "Template to apply after migration")
+	migrateCmd.Flags().StringArrayVarP(&migrateTemplateVars, "var", "v", nil, "Set template variable (key=value)")
+	migrateCmd.Flags().BoolVar(&migrateNoHooks, "no-hooks", false, "Skip running lifecycle hooks")
 }
