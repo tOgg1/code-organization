@@ -11,27 +11,75 @@ import (
 )
 
 type Result struct {
-	RemoteExists bool   `json:"remote_exists"`
-	ActionTaken  string `json:"action_taken"`
-	BytesSent    int64  `json:"bytes_sent,omitempty"`
-	DurationMs   int64  `json:"duration_ms"`
-	Error        string `json:"error,omitempty"`
+	RemoteExists bool     `json:"remote_exists"`
+	ActionTaken  string   `json:"action_taken"`
+	BytesSent    int64    `json:"bytes_sent,omitempty"`
+	DurationMs   int64    `json:"duration_ms"`
+	Error        string   `json:"error,omitempty"`
+	Excludes     []string `json:"excludes,omitempty"`
 }
 
 type Options struct {
-	Force    bool
-	DryRun   bool
-	NoGit    bool
-	Excludes []string
+	Force      bool
+	DryRun     bool
+	NoGit      bool
+	IncludeEnv bool
+	// Additional exclude patterns from CLI --exclude flags
+	ExcludePatterns []string
+	// File to read additional exclude patterns from (--exclude-from)
+	ExcludeFromFile string
+	// SkipDefaultExcludes when true, only use ExcludePatterns without builtin defaults.
+	// Used by interactive mode where user has explicitly selected what to exclude.
+	SkipDefaultExcludes bool
+	// WorkspaceAdd contains exclude patterns from project.json sync.excludes.add
+	WorkspaceAdd []string
+	// WorkspaceRemove contains patterns to remove from defaults via project.json sync.excludes.remove
+	WorkspaceRemove []string
 }
 
 func DefaultOptions() *Options {
 	return &Options{
-		Force:    false,
-		DryRun:   false,
-		NoGit:    false,
-		Excludes: fs.DefaultExcludes(),
+		Force:           false,
+		DryRun:          false,
+		NoGit:           false,
+		IncludeEnv:      false,
+		ExcludePatterns: nil,
+		ExcludeFromFile: "",
 	}
+}
+
+// BuildExcludes constructs the effective exclude list from options.
+// Precedence (low to high): BuiltinDefaults -> WorkspaceConfig -> CLI flags
+func (o *Options) BuildExcludes() (*fs.ExcludeList, error) {
+	// Collect CLI patterns
+	cliPatterns := make([]string, 0, len(o.ExcludePatterns))
+	cliPatterns = append(cliPatterns, o.ExcludePatterns...)
+
+	// Read patterns from file if specified
+	if o.ExcludeFromFile != "" {
+		filePatterns, err := fs.ParseExcludeFile(o.ExcludeFromFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read exclude file: %w", err)
+		}
+		cliPatterns = append(cliPatterns, filePatterns...)
+	}
+
+	// When SkipDefaultExcludes is set (interactive mode), use only the provided patterns
+	if o.SkipDefaultExcludes {
+		return &fs.ExcludeList{Patterns: cliPatterns}, nil
+	}
+
+	// Combine workspace and CLI additions (workspace first, then CLI)
+	allAdditional := make([]string, 0, len(o.WorkspaceAdd)+len(cliPatterns))
+	allAdditional = append(allAdditional, o.WorkspaceAdd...)
+	allAdditional = append(allAdditional, cliPatterns...)
+
+	return fs.BuildExcludeList(fs.ExcludeOptions{
+		Additional: allAdditional,
+		Remove:     o.WorkspaceRemove,
+		NoGit:      o.NoGit,
+		IncludeEnv: o.IncludeEnv,
+	}), nil
 }
 
 func SyncWorkspace(localPath string, server *config.ServerConfig, slug string, opts *Options) (*Result, error) {
@@ -101,16 +149,13 @@ func createRemoteDir(sshHost, remotePath string) error {
 }
 
 func rsyncWorkspace(localPath, sshHost, remotePath string, opts *Options) error {
+	excludeList, err := opts.BuildExcludes()
+	if err != nil {
+		return err
+	}
+
 	args := []string{"-az", "--partial", "--progress"}
-
-	for _, exclude := range opts.Excludes {
-		args = append(args, "--exclude="+exclude)
-	}
-
-	if opts.NoGit {
-		args = append(args, "--exclude=.git/")
-	}
-
+	args = append(args, excludeList.ToRsyncArgs()...)
 	args = append(args, localPath+"/")
 	args = append(args, sshHost+":"+remotePath+"/")
 
@@ -119,15 +164,13 @@ func rsyncWorkspace(localPath, sshHost, remotePath string, opts *Options) error 
 }
 
 func tarSyncWorkspace(localPath, sshHost, remotePath string, opts *Options) error {
-	excludeArgs := []string{}
-	for _, exclude := range opts.Excludes {
-		excludeArgs = append(excludeArgs, "--exclude="+exclude)
-	}
-	if opts.NoGit {
-		excludeArgs = append(excludeArgs, "--exclude=.git")
+	excludeList, err := opts.BuildExcludes()
+	if err != nil {
+		return err
 	}
 
-	tarArgs := append([]string{"-czf", "-"}, excludeArgs...)
+	tarArgs := []string{"-czf", "-"}
+	tarArgs = append(tarArgs, excludeList.ToTarArgs()...)
 	tarArgs = append(tarArgs, "-C", localPath, ".")
 
 	tarCmd := exec.Command("tar", tarArgs...)
@@ -153,14 +196,6 @@ func tarSyncWorkspace(localPath, sshHost, remotePath string, opts *Options) erro
 	}
 
 	return sshCmd.Wait()
-}
-
-func BuildExcludeList(noGit bool) []string {
-	excludes := fs.DefaultExcludes()
-	if noGit {
-		excludes = append(excludes, ".git")
-	}
-	return excludes
 }
 
 func FormatResult(r *Result) string {
