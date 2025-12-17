@@ -542,20 +542,23 @@ Files in `~/Code/_system/templates/_global/` are copied to every workspace creat
 
 ### Default Excludes
 
-```
-**/node_modules/
-**/target/
-**/.next/
-**/dist/
-**/build/
-**/.venv/
-**/.pytest_cache/
-**/.DS_Store
-**/*.log
-.env
-.env.*
-**/secrets/
-```
+Common build artifacts, dependency caches, and sensitive files are excluded by default:
+
+| Category | Patterns |
+|----------|----------|
+| **Dependencies** | `node_modules/`, `vendor/`, `.pnpm-store/`, `bower_components/` |
+| **Build outputs** | `target/`, `dist/`, `build/`, `out/`, `bin/`, `obj/`, `_build/` |
+| **Frameworks** | `.next/`, `.nuxt/`, `.output/`, `.svelte-kit/`, `.vercel/`, `.netlify/` |
+| **Caches** | `.cache/`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.turbo/` |
+| **Virtual envs** | `.venv/`, `venv/`, `.virtualenv/` |
+| **Coverage** | `coverage/`, `.nyc_output/`, `htmlcov/`, `.tox/`, `.nox/` |
+| **IDE** | `.idea/`, `*.swp`, `*.swo`, `*~`, `.settings/` |
+| **OS** | `.DS_Store`, `Thumbs.db`, `Desktop.ini` |
+| **Logs** | `*.log`, `logs/`, `npm-debug.log*`, `yarn-*.log*` |
+| **Secrets** | `.env`, `.env.*`, `secrets/`, `*.pem`, `*.key` |
+| **Terraform** | `.terraform/`, `*.tfstate`, `*.tfstate.*` |
+
+Use `co sync --list-excludes` to see the full list.
 
 ### Options
 
@@ -564,7 +567,57 @@ Files in `~/Code/_system/templates/_global/` are copied to every workspace creat
 | `--force` | Sync even if remote exists |
 | `--dry-run` | Preview without changes |
 | `--no-git` | Exclude `.git/` directories |
-| `--include-env` | Include `.env` files |
+| `-i, --interactive` | Launch TUI to select excludes before syncing |
+| `--exclude <pattern>` | Add pattern to exclude (repeatable) |
+| `--exclude-from <file>` | Read patterns from file (one per line, `#` comments) |
+| `--include-env` | Include `.env` files (override default exclude) |
+| `--list-excludes` | Print effective exclude list and exit |
+
+### Interactive Mode
+
+Launch with `co sync <workspace> <server> --interactive` to select files/directories to exclude:
+
+```bash
+co sync acme--backend prod -i
+```
+
+**Keybindings:**
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↑/↓` | Navigate list |
+| `space` | Toggle exclude (red ✗ = excluded) |
+| `h/l` or `←/→` | Collapse/expand directory |
+| `g/G` | Jump to top/bottom |
+| `c` | Clear all exclusions |
+| `r` | Reset to defaults |
+| `enter` | Confirm and sync |
+| `S` | Save selections to project.json and sync |
+| `q` or `esc` | Cancel |
+
+Default excludes start pre-selected. Excluding a directory excludes its entire subtree.
+
+### Per-Workspace Excludes
+
+Exclude patterns can be persisted in `project.json` so they apply automatically on future syncs:
+
+```json
+{
+  "sync": {
+    "excludes": {
+      "add": ["data/raw/", "*.sqlite"],
+      "remove": ["vendor/"]
+    },
+    "include_env": false
+  }
+}
+```
+
+- `add`: Patterns to add to default excludes
+- `remove`: Patterns to remove from default excludes
+- `include_env`: Set to `true` to include `.env` files
+
+Use `S` in interactive mode to save your current selections to `project.json`.
 
 ---
 
