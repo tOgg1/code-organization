@@ -22,6 +22,18 @@ type RepoSpec struct {
 	Remote string `json:"remote,omitempty"`
 }
 
+// ExcludeConfig represents exclude configuration for sync operations.
+type ExcludeConfig struct {
+	Add    []string `json:"add,omitempty"`    // Patterns to add to defaults
+	Remove []string `json:"remove,omitempty"` // Patterns to remove from defaults
+}
+
+// SyncConfig holds sync-related configuration for a workspace.
+type SyncConfig struct {
+	Excludes   *ExcludeConfig `json:"excludes,omitempty"`
+	IncludeEnv bool           `json:"include_env,omitempty"`
+}
+
 type Project struct {
 	Schema       int               `json:"schema"`
 	Slug         string            `json:"slug"`
@@ -35,6 +47,7 @@ type Project struct {
 	Notes        string            `json:"notes,omitempty"`
 	Template     string            `json:"template,omitempty"`      // Template used to create workspace
 	TemplateVars map[string]string `json:"template_vars,omitempty"` // Variables used during creation
+	Sync         *SyncConfig       `json:"sync,omitempty"`          // Sync configuration
 }
 
 const CurrentProjectSchema = 1
