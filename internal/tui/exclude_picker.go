@@ -22,8 +22,8 @@ var (
 				Background(lipgloss.Color("236")).
 				Foreground(lipgloss.Color("212")).
 				Bold(true)
-	pickerExcludedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
-	pickerIncludedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("34"))  // green
+	pickerExcludedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("174")) // soft rose
+	pickerIncludedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("108")) // muted sage
 	pickerDirStyle      = lipgloss.NewStyle().Bold(true)
 )
 
