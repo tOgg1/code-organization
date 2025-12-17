@@ -10,21 +10,6 @@ import (
 
 var workspacePattern = regexp.MustCompile(`^[a-z0-9-]+--[a-z0-9-]+(--(poc|demo|legacy|migration|infra))?$`)
 
-var defaultExcludes = []string{
-	"node_modules",
-	"target",
-	".next",
-	"dist",
-	"build",
-	".venv",
-	".pytest_cache",
-	".DS_Store",
-	"*.log",
-	".env",
-	".env.*",
-	"secrets",
-}
-
 func IsValidWorkspaceSlug(name string) bool {
 	return workspacePattern.MatchString(name)
 }
@@ -122,7 +107,8 @@ func CalculateSize(path string) (int64, error) {
 }
 
 func shouldExcludeDir(name string) bool {
-	for _, exclude := range defaultExcludes {
+	for _, exclude := range BuiltinExcludes {
+		exclude = strings.TrimSuffix(exclude, "/")
 		if name == exclude {
 			return true
 		}
@@ -178,5 +164,5 @@ func CreateWorkspace(codeRoot, slug string) (string, error) {
 }
 
 func DefaultExcludes() []string {
-	return append([]string{}, defaultExcludes...)
+	return append([]string{}, BuiltinExcludes...)
 }

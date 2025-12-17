@@ -49,11 +49,18 @@ func TestShouldExcludeDir(t *testing.T) {
 		exclude bool
 	}{
 		{"node_modules", true},
+		{"vendor", true},
 		{"target", true},
 		{".next", true},
 		{"dist", true},
 		{"build", true},
+		{"out", true},
+		{"bin", true},
+		{"obj", true},
+		{"coverage", true},
+		{"__pycache__", true},
 		{".venv", true},
+		{".cache", true},
 		{".pytest_cache", true},
 		{".DS_Store", true},
 
@@ -61,7 +68,6 @@ func TestShouldExcludeDir(t *testing.T) {
 		{"internal", false},
 		{"cmd", false},
 		{"lib", false},
-		{"vendor", false},
 		{"node_modules_backup", false},
 	}
 
