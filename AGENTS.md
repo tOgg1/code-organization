@@ -281,4 +281,3 @@ Treat cass as a way to avoid re-solving problems other agents already handled.
 ## This project
 
 This project is the OSS tool "code organization". Read README.md for more information.
-
