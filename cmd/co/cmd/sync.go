@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sahilm/fuzzy"
 	"github.com/spf13/cobra"
 	"github.com/tormodhaugland/co/internal/config"
 	"github.com/tormodhaugland/co/internal/fs"
@@ -64,7 +65,7 @@ to exclude before syncing. Navigate with j/k, toggle with space.`,
 			return fmt.Errorf("requires exactly 2 arguments: <workspace-slug> <server>")
 		}
 
-		slug := args[0]
+		query := args[0]
 		serverName := args[1]
 
 		cfg, err := config.Load(cfgFile)
@@ -72,8 +73,31 @@ to exclude before syncing. Navigate with j/k, toggle with space.`,
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		if !fs.WorkspaceExists(cfg.CodeRoot, slug) {
-			return fmt.Errorf("workspace not found: %s", slug)
+		// Resolve workspace slug with fuzzy matching
+		slug := query
+		if !fs.WorkspaceExists(cfg.CodeRoot, query) {
+			// Try fuzzy matching
+			workspaces, err := fs.ListWorkspaces(cfg.CodeRoot)
+			if err != nil {
+				return fmt.Errorf("failed to list workspaces: %w", err)
+			}
+
+			matches := fuzzy.Find(query, workspaces)
+			if len(matches) == 0 {
+				return fmt.Errorf("no workspace found matching: %s", query)
+			}
+
+			best := matches[0]
+			if best.Score < -10 {
+				return fmt.Errorf("no workspace found matching: %s", query)
+			}
+
+			slug = best.Str
+			if len(matches) > 1 && matches[0].Score == matches[1].Score {
+				fmt.Fprintf(os.Stderr, "Ambiguous match, using: %s\n", slug)
+			} else if query != slug {
+				fmt.Fprintf(os.Stderr, "Matched workspace: %s\n", slug)
+			}
 		}
 
 		localPath := cfg.WorkspacePath(slug)
