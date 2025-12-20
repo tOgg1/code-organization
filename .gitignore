@@ -1,2 +1,5 @@
 /co
 /build/co
+
+# bv (beads viewer) local config and caches
+.bv/

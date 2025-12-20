@@ -238,6 +238,85 @@ func ListArchives(cfg *config.Config) ([]ArchiveEntry, error) {
 	return entries, nil
 }
 
+// StashResult holds the result of a stash operation.
+type StashResult struct {
+	ArchivePath string `json:"archive_path"`
+	SourcePath  string `json:"source_path"`
+	Name        string `json:"name"`
+	Deleted     bool   `json:"deleted"`
+}
+
+// StashOptions configures a stash operation.
+type StashOptions struct {
+	Name        string // Custom archive name (defaults to folder name)
+	DeleteAfter bool   // Delete source folder after archiving
+}
+
+// StashFolder archives any folder to the system archive directory.
+// Unlike ArchiveWorkspace, this works on arbitrary folders, not just workspaces.
+func StashFolder(cfg *config.Config, sourcePath string, opts StashOptions) (*StashResult, error) {
+	// Determine archive name
+	name := opts.Name
+	if name == "" {
+		name = filepath.Base(sourcePath)
+	}
+	name = SanitizeArchiveName(name)
+
+	now := time.Now()
+	year := now.Format("2006")
+	timestamp := now.Format("20060102-150405")
+
+	archiveDir := filepath.Join(cfg.ArchiveDir(), year)
+	if err := fs.EnsureDir(archiveDir); err != nil {
+		return nil, fmt.Errorf("failed to create archive directory: %w", err)
+	}
+
+	// Create archive filename: name--timestamp--stash.tar.gz
+	archiveName := fmt.Sprintf("%s--%s--stash.tar.gz", name, timestamp)
+	archivePath := filepath.Join(archiveDir, archiveName)
+
+	// Create the tar.gz archive
+	cmd := exec.Command("tar", "-czf", archivePath, "-C", filepath.Dir(sourcePath), filepath.Base(sourcePath))
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to create archive: %w", err)
+	}
+
+	result := &StashResult{
+		ArchivePath: archivePath,
+		SourcePath:  sourcePath,
+		Name:        name,
+	}
+
+	if opts.DeleteAfter {
+		if err := os.RemoveAll(sourcePath); err != nil {
+			return nil, fmt.Errorf("failed to delete source folder: %w", err)
+		}
+		result.Deleted = true
+	}
+
+	return result, nil
+}
+
+// SanitizeArchiveName cleans up a name for use in archive filenames.
+func SanitizeArchiveName(s string) string {
+	s = strings.ToLower(s)
+	var result strings.Builder
+	for _, c := range s {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+			result.WriteRune(c)
+		} else if c == ' ' {
+			result.WriteRune('-')
+		}
+	}
+	name := result.String()
+	// Trim leading/trailing dashes
+	name = strings.Trim(name, "-_")
+	if name == "" {
+		name = "folder"
+	}
+	return name
+}
+
 func readArchiveMeta(archivePath string) (*ArchiveMeta, error) {
 	file, err := os.Open(archivePath)
 	if err != nil {

@@ -4,14 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/tormodhaugland/co/internal/archive"
 	"github.com/tormodhaugland/co/internal/config"
-	"github.com/tormodhaugland/co/internal/fs"
 	"github.com/tormodhaugland/co/internal/tui"
 )
 
@@ -19,14 +16,6 @@ var (
 	stashDelete bool
 	stashName   string
 )
-
-// StashResult holds the result of a stash operation.
-type StashResult struct {
-	ArchivePath string `json:"archive_path"`
-	SourcePath  string `json:"source_path"`
-	Name        string `json:"name"`
-	Deleted     bool   `json:"deleted"`
-}
 
 var stashCmd = &cobra.Command{
 	Use:   "stash <folder-path>",
@@ -60,13 +49,6 @@ Use --name to specify a custom name for the archive (defaults to folder name).`,
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		// Determine archive name
-		name := stashName
-		if name == "" {
-			name = filepath.Base(sourcePath)
-		}
-		name = sanitizeArchiveName(name)
-
 		// Confirm if deleting
 		if stashDelete {
 			result, err := tui.RunConfirm(fmt.Sprintf("Archive and DELETE '%s'?", sourcePath))
@@ -79,7 +61,13 @@ Use --name to specify a custom name for the archive (defaults to folder name).`,
 			}
 		}
 
-		result, err := stashFolder(cfg, sourcePath, name, stashDelete)
+		fmt.Printf("Archiving: %s\n", sourcePath)
+
+		opts := archive.StashOptions{
+			Name:        stashName,
+			DeleteAfter: stashDelete,
+		}
+		result, err := archive.StashFolder(cfg, sourcePath, opts)
 		if err != nil {
 			return err
 		}
@@ -97,64 +85,6 @@ Use --name to specify a custom name for the archive (defaults to folder name).`,
 
 		return nil
 	},
-}
-
-func stashFolder(cfg *config.Config, sourcePath, name string, deleteAfter bool) (*StashResult, error) {
-	now := time.Now()
-	year := now.Format("2006")
-	timestamp := now.Format("20060102-150405")
-
-	archiveDir := filepath.Join(cfg.ArchiveDir(), year)
-	if err := fs.EnsureDir(archiveDir); err != nil {
-		return nil, fmt.Errorf("failed to create archive directory: %w", err)
-	}
-
-	// Create archive filename: name--timestamp--stash.tar.gz
-	archiveName := fmt.Sprintf("%s--%s--stash.tar.gz", name, timestamp)
-	archivePath := filepath.Join(archiveDir, archiveName)
-
-	fmt.Printf("Archiving: %s\n", sourcePath)
-
-	// Create the tar.gz archive
-	cmd := exec.Command("tar", "-czf", archivePath, "-C", filepath.Dir(sourcePath), filepath.Base(sourcePath))
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to create archive: %w", err)
-	}
-
-	result := &StashResult{
-		ArchivePath: archivePath,
-		SourcePath:  sourcePath,
-		Name:        name,
-	}
-
-	if deleteAfter {
-		if err := os.RemoveAll(sourcePath); err != nil {
-			return nil, fmt.Errorf("failed to delete source folder: %w", err)
-		}
-		result.Deleted = true
-	}
-
-	return result, nil
-}
-
-// sanitizeArchiveName cleans up a name for use in archive filenames.
-func sanitizeArchiveName(s string) string {
-	s = strings.ToLower(s)
-	var result strings.Builder
-	for _, c := range s {
-		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
-			result.WriteRune(c)
-		} else if c == ' ' {
-			result.WriteRune('-')
-		}
-	}
-	name := result.String()
-	// Trim leading/trailing dashes
-	name = strings.Trim(name, "-_")
-	if name == "" {
-		name = "folder"
-	}
-	return name
 }
 
 func init() {
