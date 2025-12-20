@@ -131,9 +131,12 @@ func (m migratePromptModel) View() string {
 	sb.WriteString(promptLabelStyle.Render("Migrate folder to workspace") + "\n\n")
 	sb.WriteString(fmt.Sprintf("Source: %s\n", m.sourceFolder))
 
-	if len(m.gitRoots) == 1 {
-		sb.WriteString(fmt.Sprintf("Found:  1 git repository\n\n"))
-	} else {
+	switch len(m.gitRoots) {
+	case 0:
+		sb.WriteString("Found:  no git repositories (files only)\n\n")
+	case 1:
+		sb.WriteString("Found:  1 git repository\n\n")
+	default:
 		sb.WriteString(fmt.Sprintf("Found:  %d git repositories\n\n", len(m.gitRoots)))
 	}
 

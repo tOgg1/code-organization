@@ -36,6 +36,7 @@ workspace structure (project.json + repos/).
 
 If the source folder itself is a git repo, it becomes the single repo.
 If the source contains multiple git repos, each becomes a separate repo.
+Non-git files and folders can also be included via an interactive picker.
 
 Use --add-to to add repos to an existing workspace instead of creating a new one.
 
@@ -68,8 +69,13 @@ Template Support:
 			return fmt.Errorf("failed to scan for git repos: %w", err)
 		}
 
-		if len(gitRoots) == 0 {
-			return fmt.Errorf("no git repositories found in %s", sourcePath)
+		// Check if the source folder has any content at all
+		entries, err := os.ReadDir(sourcePath)
+		if err != nil {
+			return fmt.Errorf("failed to read source directory: %w", err)
+		}
+		if len(entries) == 0 {
+			return fmt.Errorf("source directory is empty: %s", sourcePath)
 		}
 
 		if migrateAddTo != "" {
@@ -244,6 +250,12 @@ func runCreateWorkspace(cfg *config.Config, sourcePath string, gitRoots []string
 				fmt.Println("Migration cancelled.")
 				return nil
 			}
+		}
+
+		// If no git repos and no files selected, nothing to migrate
+		if len(gitRoots) == 0 && len(extraFilesResult.SelectedPaths) == 0 {
+			fmt.Println("No git repositories found and no files selected. Nothing to migrate.")
+			return nil
 		}
 	}
 
