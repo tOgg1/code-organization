@@ -116,6 +116,13 @@ Then use:
 				return nil
 			}
 
+			// Auto-select if only one repo
+			if len(repos) == 1 {
+				repoPath := filepath.Join(workspacePath, "repos", repos[0])
+				fmt.Println(repoPath)
+				return nil
+			}
+
 			// Interactive repo selection
 			result, err := tui.RunRepoSelect(repos, workspacePath)
 			if err != nil {

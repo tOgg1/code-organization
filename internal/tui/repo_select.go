@@ -2,11 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 // RepoSelectResult holds the result of repo selection.
@@ -106,8 +108,12 @@ func RunRepoSelect(repos []string, workspacePath string) (RepoSelectResult, erro
 		return RepoSelectResult{Abort: true}, fmt.Errorf("no repositories found in workspace")
 	}
 
+	// Use stderr for rendering so stdout stays clean for path output in $(co cd -r)
+	// Also configure lipgloss to detect colors from stderr, not stdout
+	lipgloss.SetDefaultRenderer(lipgloss.NewRenderer(os.Stderr, termenv.WithColorCache(true)))
+
 	m := newRepoSelectModel(repos, workspacePath)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithOutput(os.Stderr))
 
 	finalModel, err := p.Run()
 	if err != nil {
