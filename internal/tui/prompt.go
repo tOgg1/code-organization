@@ -15,13 +15,13 @@ var (
 	promptErrorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 )
 
-type MigratePromptResult struct {
+type ImportPromptResult struct {
 	Owner   string
 	Project string
 	Abort   bool
 }
 
-type migratePromptModel struct {
+type importPromptModel struct {
 	ownerInput   textinput.Model
 	projectInput textinput.Model
 	focusIndex   int
@@ -29,10 +29,10 @@ type migratePromptModel struct {
 	gitRoots     []string
 	err          string
 	done         bool
-	result       MigratePromptResult
+	result       ImportPromptResult
 }
 
-func newMigratePromptModel(sourceFolder string, gitRoots []string, suggestedOwner, suggestedProject string) migratePromptModel {
+func newImportPromptModel(sourceFolder string, gitRoots []string, suggestedOwner, suggestedProject string) importPromptModel {
 	oi := textinput.New()
 	oi.Placeholder = "owner"
 	oi.CharLimit = 64
@@ -46,7 +46,7 @@ func newMigratePromptModel(sourceFolder string, gitRoots []string, suggestedOwne
 	pi.Width = 30
 	pi.SetValue(suggestedProject)
 
-	return migratePromptModel{
+	return importPromptModel{
 		ownerInput:   oi,
 		projectInput: pi,
 		focusIndex:   0,
@@ -55,11 +55,11 @@ func newMigratePromptModel(sourceFolder string, gitRoots []string, suggestedOwne
 	}
 }
 
-func (m migratePromptModel) Init() tea.Cmd {
+func (m importPromptModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-func (m migratePromptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m importPromptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -125,10 +125,10 @@ func (m migratePromptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m migratePromptModel) View() string {
+func (m importPromptModel) View() string {
 	var sb strings.Builder
 
-	sb.WriteString(promptLabelStyle.Render("Migrate folder to workspace") + "\n\n")
+	sb.WriteString(promptLabelStyle.Render("Import folder to workspace") + "\n\n")
 	sb.WriteString(fmt.Sprintf("Source: %s\n", m.sourceFolder))
 
 	switch len(m.gitRoots) {
@@ -164,15 +164,15 @@ func isValidSlugPart(s string) bool {
 	return true
 }
 
-func RunMigratePrompt(sourceFolder string, gitRoots []string, suggestedOwner, suggestedProject string) (MigratePromptResult, error) {
-	m := newMigratePromptModel(sourceFolder, gitRoots, suggestedOwner, suggestedProject)
+func RunImportPrompt(sourceFolder string, gitRoots []string, suggestedOwner, suggestedProject string) (ImportPromptResult, error) {
+	m := newImportPromptModel(sourceFolder, gitRoots, suggestedOwner, suggestedProject)
 	p := tea.NewProgram(m)
 
 	finalModel, err := p.Run()
 	if err != nil {
-		return MigratePromptResult{Abort: true}, err
+		return ImportPromptResult{Abort: true}, err
 	}
 
-	result := finalModel.(migratePromptModel).result
+	result := finalModel.(importPromptModel).result
 	return result, nil
 }

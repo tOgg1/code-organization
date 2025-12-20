@@ -17,19 +17,19 @@ import (
 )
 
 var (
-	migrateOwner        string
-	migrateProject      string
-	migrateDryRun       bool
-	migrateAddTo        string
-	migrateTemplateName string
-	migrateTemplateVars []string
-	migrateNoHooks      bool
+	importOwner        string
+	importProject      string
+	importDryRun       bool
+	importAddTo        string
+	importTemplateName string
+	importTemplateVars []string
+	importNoHooks      bool
 )
 
-var migrateCmd = &cobra.Command{
-	Use:   "migrate <folder-path>",
-	Short: "Migrate an existing folder to a new workspace",
-	Long: `Migrates an existing folder containing code into a proper workspace.
+var importCmd = &cobra.Command{
+	Use:   "import <folder-path>",
+	Short: "Import an existing folder into a new workspace",
+	Long: `Imports an existing folder containing code into a proper workspace.
 
 Detects git repositories within the folder and creates the standard
 workspace structure (project.json + repos/).
@@ -41,7 +41,7 @@ Non-git files and folders can also be included via an interactive picker.
 Use --add-to to add repos to an existing workspace instead of creating a new one.
 
 Template Support:
-  -t, --template <name>  Apply a template after migration
+  -t, --template <name>  Apply a template after import
   -v, --var <key=value>  Set template variable (can be repeated)
       --no-hooks         Skip running lifecycle hooks`,
 	Args: cobra.ExactArgs(1),
@@ -78,7 +78,7 @@ Template Support:
 			return fmt.Errorf("source directory is empty: %s", sourcePath)
 		}
 
-		if migrateAddTo != "" {
+		if importAddTo != "" {
 			return runAddToWorkspace(cfg, sourcePath, gitRoots)
 		}
 
@@ -87,7 +87,7 @@ Template Support:
 }
 
 func runAddToWorkspace(cfg *config.Config, sourcePath string, gitRoots []string) error {
-	slug := migrateAddTo
+	slug := importAddTo
 	if !fs.IsValidWorkspaceSlug(slug) {
 		return fmt.Errorf("invalid workspace slug: %s", slug)
 	}
@@ -111,7 +111,7 @@ func runAddToWorkspace(cfg *config.Config, sourcePath string, gitRoots []string)
 
 	// Check for non-git files/folders to offer inclusion
 	var extraFilesResult tui.ExtraFilesResult
-	if !migrateDryRun {
+	if !importDryRun {
 		nonGitItems, err := tui.FindNonGitItems(sourcePath, gitRoots)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to scan for non-git files: %v\n", err)
@@ -121,13 +121,13 @@ func runAddToWorkspace(cfg *config.Config, sourcePath string, gitRoots []string)
 				fmt.Fprintf(os.Stderr, "Warning: extra files picker failed: %v\n", err)
 			}
 			if extraFilesResult.Aborted {
-				fmt.Println("Migration cancelled.")
+				fmt.Println("Import cancelled.")
 				return nil
 			}
 		}
 	}
 
-	if migrateDryRun {
+	if importDryRun {
 		fmt.Printf("Dry run - would add to workspace: %s\n", slug)
 		for _, root := range gitRoots {
 			repoName := deriveRepoNameFromPath(root, sourcePath)
@@ -197,8 +197,8 @@ func runAddToWorkspace(cfg *config.Config, sourcePath string, gitRoots []string)
 }
 
 func runCreateWorkspace(cfg *config.Config, sourcePath string, gitRoots []string) error {
-	suggestedOwner := migrateOwner
-	suggestedProject := migrateProject
+	suggestedOwner := importOwner
+	suggestedProject := importProject
 
 	if suggestedProject == "" {
 		suggestedProject = strings.ToLower(filepath.Base(sourcePath))
@@ -207,16 +207,16 @@ func runCreateWorkspace(cfg *config.Config, sourcePath string, gitRoots []string
 
 	var owner, project string
 
-	if migrateOwner != "" && migrateProject != "" {
-		owner = strings.ToLower(migrateOwner)
-		project = strings.ToLower(migrateProject)
+	if importOwner != "" && importProject != "" {
+		owner = strings.ToLower(importOwner)
+		project = strings.ToLower(importProject)
 	} else {
-		result, err := tui.RunMigratePrompt(sourcePath, gitRoots, suggestedOwner, suggestedProject)
+		result, err := tui.RunImportPrompt(sourcePath, gitRoots, suggestedOwner, suggestedProject)
 		if err != nil {
 			return fmt.Errorf("prompt failed: %w", err)
 		}
 		if result.Abort {
-			fmt.Println("Migration cancelled.")
+			fmt.Println("Import cancelled.")
 			return nil
 		}
 		owner = result.Owner
@@ -237,7 +237,7 @@ func runCreateWorkspace(cfg *config.Config, sourcePath string, gitRoots []string
 
 	// Check for non-git files/folders to offer inclusion
 	var extraFilesResult tui.ExtraFilesResult
-	if !migrateDryRun {
+	if !importDryRun {
 		nonGitItems, err := tui.FindNonGitItems(sourcePath, gitRoots)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to scan for non-git files: %v\n", err)
@@ -252,14 +252,14 @@ func runCreateWorkspace(cfg *config.Config, sourcePath string, gitRoots []string
 			}
 		}
 
-		// If no git repos and no files selected, nothing to migrate
+		// If no git repos and no files selected, nothing to import
 		if len(gitRoots) == 0 && len(extraFilesResult.SelectedPaths) == 0 {
-			fmt.Println("No git repositories found and no files selected. Nothing to migrate.")
+			fmt.Println("No git repositories found and no files selected. Nothing to import.")
 			return nil
 		}
 	}
 
-	if migrateDryRun {
+	if importDryRun {
 		fmt.Println("Dry run - would perform:")
 		fmt.Printf("  Create workspace: %s\n", workspacePath)
 		fmt.Printf("  Create repos dir: %s\n", reposPath)
@@ -323,9 +323,9 @@ func runCreateWorkspace(cfg *config.Config, sourcePath string, gitRoots []string
 	fmt.Printf("\nCreated workspace: %s\n", workspacePath)
 
 	// Apply template if specified
-	if migrateTemplateName != "" {
-		fmt.Printf("\nApplying template: %s\n", migrateTemplateName)
-		if err := applyMigrateTemplate(cfg, workspacePath); err != nil {
+	if importTemplateName != "" {
+		fmt.Printf("\nApplying template: %s\n", importTemplateName)
+		if err := applyImportTemplate(cfg, workspacePath); err != nil {
 			return fmt.Errorf("failed to apply template: %w", err)
 		}
 	}
@@ -382,25 +382,25 @@ func copyExtraFiles(sourcePath, workspacePath string, result tui.ExtraFilesResul
 	return nil
 }
 
-func applyMigrateTemplate(cfg *config.Config, workspacePath string) error {
+func applyImportTemplate(cfg *config.Config, workspacePath string) error {
 	// Load template to check for required variables
-	tmpl, err := template.LoadTemplate(cfg.TemplatesDir(), migrateTemplateName)
+	tmpl, err := template.LoadTemplate(cfg.TemplatesDir(), importTemplateName)
 	if err != nil {
 		return err
 	}
 
 	// Parse provided variables
-	providedVars := parseMigrateVarFlags(migrateTemplateVars)
+	providedVars := parseImportVarFlags(importTemplateVars)
 
 	// Get built-in variables
 	slug := filepath.Base(workspacePath)
-	owner, project := parseSlugForMigrate(slug)
+	owner, project := parseSlugForImport(slug)
 	builtins := template.GetBuiltinVariables(owner, project, workspacePath, cfg.CodeRoot)
 
 	// Check for missing required variables and prompt
 	missing := template.GetMissingRequiredVars(tmpl, providedVars, builtins)
 	if len(missing) > 0 {
-		fmt.Printf("Template '%s' requires the following variables:\n\n", migrateTemplateName)
+		fmt.Printf("Template '%s' requires the following variables:\n\n", importTemplateName)
 		reader := bufio.NewReader(os.Stdin)
 
 		for _, v := range missing {
@@ -428,14 +428,14 @@ func applyMigrateTemplate(cfg *config.Config, workspacePath string) error {
 
 	// Apply template to existing workspace
 	opts := template.CreateOptions{
-		TemplateName: migrateTemplateName,
+		TemplateName: importTemplateName,
 		Variables:    providedVars,
-		NoHooks:      migrateNoHooks,
-		DryRun:       migrateDryRun,
+		NoHooks:      importNoHooks,
+		DryRun:       importDryRun,
 		Verbose:      true,
 	}
 
-	result, err := template.ApplyTemplateToExisting(cfg, workspacePath, migrateTemplateName, opts)
+	result, err := template.ApplyTemplateToExisting(cfg, workspacePath, importTemplateName, opts)
 	if err != nil {
 		return err
 	}
@@ -455,7 +455,7 @@ func applyMigrateTemplate(cfg *config.Config, workspacePath string) error {
 	return nil
 }
 
-func parseMigrateVarFlags(vars []string) map[string]string {
+func parseImportVarFlags(vars []string) map[string]string {
 	result := make(map[string]string)
 	for _, v := range vars {
 		parts := strings.SplitN(v, "=", 2)
@@ -466,7 +466,7 @@ func parseMigrateVarFlags(vars []string) map[string]string {
 	return result
 }
 
-func parseSlugForMigrate(slug string) (owner, project string) {
+func parseSlugForImport(slug string) (owner, project string) {
 	parts := strings.SplitN(slug, "--", 2)
 	if len(parts) == 2 {
 		return parts[0], parts[1]
@@ -543,12 +543,12 @@ func copyFile(src, dst string, mode os.FileMode) error {
 }
 
 func init() {
-	rootCmd.AddCommand(migrateCmd)
-	migrateCmd.Flags().StringVarP(&migrateOwner, "owner", "o", "", "workspace owner (skip prompt)")
-	migrateCmd.Flags().StringVarP(&migrateProject, "project", "p", "", "project name (skip prompt)")
-	migrateCmd.Flags().StringVar(&migrateAddTo, "add-to", "", "add repos to existing workspace instead of creating new")
-	migrateCmd.Flags().BoolVar(&migrateDryRun, "dry-run", false, "show what would be done without making changes")
-	migrateCmd.Flags().StringVarP(&migrateTemplateName, "template", "t", "", "Template to apply after migration")
-	migrateCmd.Flags().StringArrayVarP(&migrateTemplateVars, "var", "v", nil, "Set template variable (key=value)")
-	migrateCmd.Flags().BoolVar(&migrateNoHooks, "no-hooks", false, "Skip running lifecycle hooks")
+	rootCmd.AddCommand(importCmd)
+	importCmd.Flags().StringVarP(&importOwner, "owner", "o", "", "workspace owner (skip prompt)")
+	importCmd.Flags().StringVarP(&importProject, "project", "p", "", "project name (skip prompt)")
+	importCmd.Flags().StringVar(&importAddTo, "add-to", "", "add repos to existing workspace instead of creating new")
+	importCmd.Flags().BoolVar(&importDryRun, "dry-run", false, "show what would be done without making changes")
+	importCmd.Flags().StringVarP(&importTemplateName, "template", "t", "", "Template to apply after import")
+	importCmd.Flags().StringArrayVarP(&importTemplateVars, "var", "v", nil, "Set template variable (key=value)")
+	importCmd.Flags().BoolVar(&importNoHooks, "no-hooks", false, "Skip running lifecycle hooks")
 }
