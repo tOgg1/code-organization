@@ -103,6 +103,24 @@ func runAddToWorkspace(cfg *config.Config, sourcePath string, gitRoots []string)
 		existingRepos[r.Name] = true
 	}
 
+	// Check for non-git files/folders to offer inclusion
+	var extraFilesResult tui.ExtraFilesResult
+	if !migrateDryRun {
+		nonGitItems, err := tui.FindNonGitItems(sourcePath, gitRoots)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to scan for non-git files: %v\n", err)
+		} else if len(nonGitItems) > 0 {
+			extraFilesResult, err = tui.RunExtraFilesPicker(sourcePath, nonGitItems)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: extra files picker failed: %v\n", err)
+			}
+			if extraFilesResult.Aborted {
+				fmt.Println("Migration cancelled.")
+				return nil
+			}
+		}
+	}
+
 	if migrateDryRun {
 		fmt.Printf("Dry run - would add to workspace: %s\n", slug)
 		for _, root := range gitRoots {
@@ -151,6 +169,13 @@ func runAddToWorkspace(cfg *config.Config, sourcePath string, gitRoots []string)
 	if added > 0 {
 		if err := proj.Save(workspacePath); err != nil {
 			return fmt.Errorf("failed to save project.json: %w", err)
+		}
+	}
+
+	// Copy selected extra files to workspace
+	if extraFilesResult.Confirmed && len(extraFilesResult.SelectedPaths) > 0 {
+		if err := copyExtraFiles(sourcePath, workspacePath, extraFilesResult); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to copy some extra files: %v\n", err)
 		}
 	}
 
@@ -204,6 +229,24 @@ func runCreateWorkspace(cfg *config.Config, sourcePath string, gitRoots []string
 	workspacePath := filepath.Join(cfg.CodeRoot, slug)
 	reposPath := filepath.Join(workspacePath, "repos")
 
+	// Check for non-git files/folders to offer inclusion
+	var extraFilesResult tui.ExtraFilesResult
+	if !migrateDryRun {
+		nonGitItems, err := tui.FindNonGitItems(sourcePath, gitRoots)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to scan for non-git files: %v\n", err)
+		} else if len(nonGitItems) > 0 {
+			extraFilesResult, err = tui.RunExtraFilesPicker(sourcePath, nonGitItems)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: extra files picker failed: %v\n", err)
+			}
+			if extraFilesResult.Aborted {
+				fmt.Println("Migration cancelled.")
+				return nil
+			}
+		}
+	}
+
 	if migrateDryRun {
 		fmt.Println("Dry run - would perform:")
 		fmt.Printf("  Create workspace: %s\n", workspacePath)
@@ -250,6 +293,13 @@ func runCreateWorkspace(cfg *config.Config, sourcePath string, gitRoots []string
 		return fmt.Errorf("failed to save project.json: %w", err)
 	}
 
+	// Copy selected extra files to workspace
+	if extraFilesResult.Confirmed && len(extraFilesResult.SelectedPaths) > 0 {
+		if err := copyExtraFiles(sourcePath, workspacePath, extraFilesResult); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to copy some extra files: %v\n", err)
+		}
+	}
+
 	isEmpty, _ := isDirEmpty(sourcePath)
 	if isEmpty {
 		os.Remove(sourcePath)
@@ -269,6 +319,54 @@ func runCreateWorkspace(cfg *config.Config, sourcePath string, gitRoots []string
 	}
 
 	fmt.Printf("Run 'co index' to update the index.\n")
+	return nil
+}
+
+// copyExtraFiles copies the selected non-git files/folders to the workspace.
+func copyExtraFiles(sourcePath, workspacePath string, result tui.ExtraFilesResult) error {
+	destBase := workspacePath
+	if result.DestSubfolder != "" {
+		destBase = filepath.Join(workspacePath, result.DestSubfolder)
+		if err := os.MkdirAll(destBase, 0755); err != nil {
+			return fmt.Errorf("failed to create destination subfolder: %w", err)
+		}
+	}
+
+	for _, relPath := range result.SelectedPaths {
+		srcPath := filepath.Join(sourcePath, relPath)
+		dstPath := filepath.Join(destBase, relPath)
+
+		info, err := os.Stat(srcPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: cannot access %s: %v\n", relPath, err)
+			continue
+		}
+
+		if info.IsDir() {
+			fmt.Printf("Copying %s/ -> %s/\n", relPath, filepath.Join(result.DestSubfolder, relPath))
+			if err := copyDir(srcPath, dstPath); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to copy directory %s: %v\n", relPath, err)
+				continue
+			}
+		} else {
+			// Create parent directory if needed
+			if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to create parent dir for %s: %v\n", relPath, err)
+				continue
+			}
+			fmt.Printf("Copying %s -> %s\n", relPath, filepath.Join(result.DestSubfolder, relPath))
+			if err := copyFile(srcPath, dstPath, info.Mode()); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to copy file %s: %v\n", relPath, err)
+				continue
+			}
+		}
+
+		// Remove the source after successful copy
+		if err := os.RemoveAll(srcPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove source %s: %v\n", relPath, err)
+		}
+	}
+
 	return nil
 }
 
