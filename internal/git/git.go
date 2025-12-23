@@ -111,9 +111,73 @@ func Clone(url, destPath string) error {
 	return cmd.Run()
 }
 
+// skipDirs contains directory names that should be skipped during git root scanning.
+// These are typically large generated/dependency directories that slow down scanning.
+var skipDirs = map[string]bool{
+	// Package managers / dependencies
+	"node_modules":     true,
+	"vendor":           true,
+	"bower_components": true,
+	".pnpm-store":      true,
+	"jspm_packages":    true,
+
+	// Python
+	".venv":         true,
+	"venv":          true,
+	".virtualenv":   true,
+	"__pycache__":   true,
+	".tox":          true,
+	".nox":          true,
+	".mypy_cache":   true,
+	".pytest_cache": true,
+	"site-packages": true,
+
+	// Build outputs
+	"target": true, // Rust, Java/Maven
+	"build":  true,
+	"dist":   true,
+	"out":    true,
+	"bin":    true,
+	"obj":    true,
+	"_build": true, // Elixir
+	"deps":   true, // Elixir
+
+	// Framework caches
+	".next":         true,
+	".nuxt":         true,
+	".output":       true,
+	".svelte-kit":   true,
+	".vercel":       true,
+	".netlify":      true,
+	".turbo":        true,
+	".cache":        true,
+	".parcel-cache": true,
+
+	// IDE / tools
+	".idea":     true,
+	".vscode":   true,
+	".settings": true,
+
+	// Other
+	".terraform":  true,
+	"coverage":    true,
+	".nyc_output": true,
+	"htmlcov":     true,
+}
+
+// FindGitRoots finds all git repositories under basePath with no depth limit.
+// Consider using FindGitRootsWithDepth for better performance on large trees.
 func FindGitRoots(basePath string) ([]string, error) {
+	return FindGitRootsWithDepth(basePath, -1) // -1 means no limit
+}
+
+// FindGitRootsWithDepth finds all git repositories under basePath up to maxDepth levels deep.
+// A maxDepth of 0 only checks basePath itself, 1 checks immediate children, etc.
+// A maxDepth of -1 means no limit (scans entire tree).
+func FindGitRootsWithDepth(basePath string, maxDepth int) ([]string, error) {
 	var roots []string
 	seen := make(map[string]bool)
+	baseDepth := strings.Count(basePath, string(filepath.Separator))
 
 	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -125,10 +189,9 @@ func FindGitRoots(basePath string) ([]string, error) {
 		}
 
 		name := d.Name()
-		if name == "node_modules" || name == ".venv" || name == "target" || name == "vendor" {
-			return filepath.SkipDir
-		}
 
+		// Check for .git first (before depth limit) since we want to find repos
+		// at the depth limit, and .git is one level deeper than the repo root
 		if name == ".git" {
 			repoRoot := filepath.Dir(path)
 			if !seen[repoRoot] {
@@ -136,6 +199,19 @@ func FindGitRoots(basePath string) ([]string, error) {
 				roots = append(roots, repoRoot)
 			}
 			return filepath.SkipDir
+		}
+
+		// Skip known large/generated directories
+		if skipDirs[name] {
+			return filepath.SkipDir
+		}
+
+		// Check depth limit (after .git check so we can find repos at maxDepth)
+		if maxDepth >= 0 {
+			currentDepth := strings.Count(path, string(filepath.Separator)) - baseDepth
+			if currentDepth > maxDepth {
+				return filepath.SkipDir
+			}
 		}
 
 		return nil

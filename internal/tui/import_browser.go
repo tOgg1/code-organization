@@ -153,8 +153,13 @@ type BatchStashItemResult struct {
 // maxSourceDirEntries limits entries per directory to keep UI responsive.
 const maxSourceDirEntries = 500
 
+// gitScanMaxDepth controls how deep the initial git repository scan goes.
+// This improves startup performance for large directory trees.
+// Set to -1 for unlimited depth (not recommended for large trees).
+const gitScanMaxDepth = 4
+
 // buildSourceTree creates the root node and detects git repositories.
-// It scans for git repos first, then builds the tree structure.
+// It scans for git repos first (up to gitScanMaxDepth levels), then builds the tree structure.
 // If showHidden is true, hidden files (dotfiles) are included in the tree.
 func buildSourceTree(rootPath string, showHidden bool) (*sourceNode, error) {
 	info, err := os.Stat(rootPath)
@@ -162,8 +167,8 @@ func buildSourceTree(rootPath string, showHidden bool) (*sourceNode, error) {
 		return nil, err
 	}
 
-	// Find all git repositories in the tree
-	gitRoots, err := git.FindGitRoots(rootPath)
+	// Find git repositories up to a limited depth for performance
+	gitRoots, err := git.FindGitRootsWithDepth(rootPath, gitScanMaxDepth)
 	if err != nil {
 		return nil, err
 	}
