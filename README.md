@@ -285,6 +285,26 @@ The Template Explorer provides an interactive interface for:
 
 See the [Template Explorer TUI](#template-explorer-tui) section for keybindings.
 
+#### `co import-tui [path]`
+
+Launch an interactive TUI for browsing folders and importing them as workspaces. This is useful for organizing existing codebases into the `co` workspace structure.
+
+```bash
+co import-tui                    # Browse current directory
+co import-tui ~/projects         # Browse ~/projects
+co import-tui ./legacy-code      # Browse ./legacy-code
+```
+
+The import browser provides:
+- Tree view of the folder structure with git repository detection
+- Import folders as new workspaces with owner/project configuration
+- Add repos to existing workspaces
+- Apply templates during import
+- Stash (archive) folders for later
+- Batch operations on multiple selected folders
+
+See the [Import Browser TUI](#import-browser-tui) section for the full workflow and keybindings.
+
 #### `co open <workspace-slug>`
 
 Open a workspace in your configured editor.
@@ -917,6 +937,169 @@ The special `_global` directory contains files copied to ALL template-based work
 ```
 
 Global files from all template directories are merged, with primary taking precedence over fallback.
+
+---
+
+## Import Browser TUI
+
+The Import Browser (`co import-tui`) provides an interactive interface for migrating existing folders into the `co` workspace structure. It's ideal for organizing legacy codebases, downloaded projects, or any folder structure that needs to be converted into proper workspaces.
+
+### Workflow
+
+The import process follows this flow:
+
+```
+Browse → Select → Configure → (Template) → (Extra Files) → Preview → Execute → Post-Import
+```
+
+1. **Browse** — Navigate the folder tree to find projects to import
+2. **Select** — Choose a folder (single) or multiple folders (batch mode)
+3. **Configure** — Enter owner and project name for the workspace slug
+4. **Template** *(optional)* — Select a template to apply to the new workspace
+5. **Extra Files** *(optional)* — Select non-git files to include in the import
+6. **Preview** — Review the import operation before execution
+7. **Execute** — Create the workspace and move repositories
+8. **Post-Import** — Choose what to do with the source folder (keep/stash/delete)
+
+### Keybindings
+
+#### Browse Mode
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↑/↓` | Navigate up/down |
+| `h/l` or `←/→` | Collapse/expand directory |
+| `g` | Jump to top |
+| `G` | Jump to bottom |
+| `Enter` | Toggle expand/collapse |
+| `Space` | Toggle selection (for batch operations) |
+| `/` | Enter filter mode |
+| `.` | Toggle hidden files |
+| `r` | Refresh tree |
+| `Tab` | Switch between tree and details pane |
+| `i` | Import selected folder(s) |
+| `s` | Stash selected folder(s) (keep source) |
+| `S` | Stash selected folder(s) (delete source) |
+| `a` | Add to existing workspace |
+| `q` | Quit |
+
+#### Import Config
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `↓` | Next field |
+| `Shift+Tab` / `↑` | Previous field |
+| `Enter` | Continue to next step |
+| `Esc` | Cancel and return to browse |
+
+#### Template Selection
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↑/↓` | Navigate template list |
+| `g/G` | Jump to top/bottom |
+| `Enter` | Select template |
+| `Esc` | Skip template selection |
+
+#### Extra Files Selection
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↑/↓` | Navigate file list |
+| `Space` | Toggle file selection |
+| `a` | Select all |
+| `n` | Select none |
+| `Enter` | Confirm selection |
+| `Esc` | Skip extra files |
+
+#### Import Preview
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Execute import |
+| `d` | Toggle dry-run mode |
+| `Esc` | Go back |
+
+#### Post-Import Options
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↑/↓` | Navigate options |
+| `1/2/3` | Quick-select option |
+| `Enter` | Confirm selection |
+
+Options:
+1. **Keep** — Leave source folder in place
+2. **Stash** — Archive source folder to `_system/archive/`
+3. **Delete** — Remove source folder (with confirmation)
+
+### Features
+
+#### Git Repository Detection
+
+The import browser automatically detects git repositories and displays:
+- Repository status (clean/dirty)
+- Current branch
+- Nested repositories within folders
+
+Folders containing git repos are highlighted with a special indicator.
+
+#### Batch Operations
+
+Select multiple folders using `Space`, then:
+- Press `i` to batch import all selected folders
+- Press `s` or `S` to batch stash all selected folders
+
+Batch import prompts for a common owner, then creates separate workspaces using each folder's name as the project.
+
+#### Template Application
+
+When importing, you can optionally apply a template to the new workspace. The template's files and hooks are applied after the repositories are moved into place.
+
+#### Add to Existing Workspace
+
+Press `a` to add the selected folder's contents to an existing workspace instead of creating a new one. This is useful for consolidating related repositories.
+
+### Display Indicators
+
+| Indicator | Meaning |
+|-----------|---------|
+| `📁` | Regular directory |
+| `📦` | Git repository |
+| `📂` | Expanded directory |
+| `✓` | Selected for batch operation |
+| `*` | Dirty git repository |
+
+### Examples
+
+**Import a single project:**
+```
+1. co import-tui ~/old-projects
+2. Navigate to the project folder
+3. Press 'i' to import
+4. Enter owner: "personal"
+5. Confirm project name (auto-filled from folder name)
+6. Press Enter to continue through preview
+7. Choose to keep or stash the source
+```
+
+**Batch import multiple projects:**
+```
+1. co import-tui ~/client-work
+2. Use j/k to navigate and Space to select folders
+3. Press 'i' to start batch import
+4. Enter common owner: "acme"
+5. Review and confirm the batch
+```
+
+**Add repos to existing workspace:**
+```
+1. co import-tui ~/downloads
+2. Navigate to a cloned repository
+3. Press 'a' to add to existing workspace
+4. Select the target workspace
+5. Confirm the operation
+```
 
 ---
 
