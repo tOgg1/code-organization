@@ -318,6 +318,11 @@ func moveDir(src, dst string) error {
 func isDirEmpty(path string) (bool, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
+		// If the directory doesn't exist (was moved away), consider it "empty"
+		// since there's nothing to clean up
+		if os.IsNotExist(err) {
+			return true, nil
+		}
 		return false, err
 	}
 	return len(entries) == 0, nil
