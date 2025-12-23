@@ -920,8 +920,8 @@ func TestFormatSize(t *testing.T) {
 	}
 }
 
-// TestGetOrCalculateSize tests size calculation with caching.
-func TestGetOrCalculateSize(t *testing.T) {
+// TestGetSizeStatus tests async size calculation and caching.
+func TestGetSizeStatus(t *testing.T) {
 	tmp := t.TempDir()
 
 	// Create a file with known content
@@ -944,37 +944,92 @@ func TestGetOrCalculateSize(t *testing.T) {
 	}
 
 	model := &ImportBrowserModel{
-		sizeCache: make(map[string]int64),
+		sizeCache:   make(map[string]int64),
+		sizePending: make(map[string]struct{}),
 	}
 
-	// Test file size
-	size, ok := model.getOrCalculateSize(testFile, false)
-	if !ok {
-		t.Error("expected ok=true for file")
+	// Test file size (synchronous for files)
+	size, cached, pending := model.getSizeStatus(testFile, false)
+	if !cached {
+		t.Error("expected cached=true for file")
+	}
+	if pending {
+		t.Error("expected pending=false for file")
 	}
 	if size != 11 {
 		t.Errorf("file size = %d, want 11", size)
 	}
 
-	// Test directory size (3 + 5 = 8 bytes)
-	size, ok = model.getOrCalculateSize(subdir, true)
+	// Test directory size - should not be cached initially
+	size, cached, pending = model.getSizeStatus(subdir, true)
+	if cached {
+		t.Error("expected cached=false for directory initially")
+	}
+	if pending {
+		t.Error("expected pending=false for directory initially")
+	}
+
+	// Trigger async calculation
+	cmd := model.triggerSizeCalc(subdir)
+	if cmd == nil {
+		t.Error("expected non-nil command from triggerSizeCalc")
+	}
+
+	// Now it should be pending
+	size, cached, pending = model.getSizeStatus(subdir, true)
+	if cached {
+		t.Error("expected cached=false while pending")
+	}
+	if !pending {
+		t.Error("expected pending=true after triggerSizeCalc")
+	}
+
+	// Execute the command to simulate async completion
+	msg := cmd()
+	sizeMsg, ok := msg.(sizeResultMsg)
 	if !ok {
-		t.Error("expected ok=true for directory")
+		t.Fatalf("expected sizeResultMsg, got %T", msg)
+	}
+	if sizeMsg.Path != subdir {
+		t.Errorf("path = %s, want %s", sizeMsg.Path, subdir)
+	}
+	if sizeMsg.Size != 8 {
+		t.Errorf("size = %d, want 8", sizeMsg.Size)
+	}
+	if sizeMsg.Err != nil {
+		t.Errorf("unexpected error: %v", sizeMsg.Err)
+	}
+
+	// Simulate handling the result (as Update would do)
+	delete(model.sizePending, sizeMsg.Path)
+	model.sizeCache[sizeMsg.Path] = sizeMsg.Size
+
+	// Now it should be cached
+	size, cached, pending = model.getSizeStatus(subdir, true)
+	if !cached {
+		t.Error("expected cached=true after result")
+	}
+	if pending {
+		t.Error("expected pending=false after result")
 	}
 	if size != 8 {
 		t.Errorf("directory size = %d, want 8", size)
 	}
 
-	// Verify caching
-	if _, cached := model.sizeCache[subdir]; !cached {
-		t.Error("directory size should be cached")
-	}
-
 	// Modify cache and verify it's used
 	model.sizeCache[subdir] = 999
-	size, _ = model.getOrCalculateSize(subdir, true)
+	size, cached, _ = model.getSizeStatus(subdir, true)
+	if !cached {
+		t.Error("expected cached=true")
+	}
 	if size != 999 {
 		t.Errorf("should use cached value, got %d", size)
+	}
+
+	// triggerSizeCalc should return nil if already cached
+	cmd = model.triggerSizeCalc(subdir)
+	if cmd != nil {
+		t.Error("expected nil command for cached path")
 	}
 }
 
@@ -1606,6 +1661,7 @@ func TestIntegrationBrowseNavigation(t *testing.T) {
 		scroller:     scroller,
 		rootPath:     tmp,
 		sizeCache:    make(map[string]int64),
+		sizePending:  make(map[string]struct{}),
 		gitRootSet:   make(map[string]bool),
 		ownerInput:   textinput.New(),
 		projectInput: textinput.New(),
@@ -1678,6 +1734,7 @@ func TestIntegrationBrowseExpandCollapse(t *testing.T) {
 		scroller:     scroller,
 		rootPath:     tmp,
 		sizeCache:    make(map[string]int64),
+		sizePending:  make(map[string]struct{}),
 		gitRootSet:   make(map[string]bool),
 		ownerInput:   textinput.New(),
 		projectInput: textinput.New(),
@@ -1742,6 +1799,7 @@ func TestIntegrationBrowseToImportConfig(t *testing.T) {
 		scroller:     scroller,
 		rootPath:     tmp,
 		sizeCache:    make(map[string]int64),
+		sizePending:  make(map[string]struct{}),
 		gitRootSet:   make(map[string]bool),
 		ownerInput:   textinput.New(),
 		projectInput: textinput.New(),
@@ -1839,6 +1897,7 @@ func TestIntegrationStashFlow(t *testing.T) {
 		scroller:       scroller,
 		rootPath:       tmp,
 		sizeCache:      make(map[string]int64),
+		sizePending:    make(map[string]struct{}),
 		gitRootSet:     make(map[string]bool),
 		ownerInput:     textinput.New(),
 		projectInput:   textinput.New(),
@@ -1896,6 +1955,7 @@ func TestIntegrationMultiSelectFlow(t *testing.T) {
 		scroller:     scroller,
 		rootPath:     tmp,
 		sizeCache:    make(map[string]int64),
+		sizePending:  make(map[string]struct{}),
 		gitRootSet:   make(map[string]bool),
 		ownerInput:   textinput.New(),
 		projectInput: textinput.New(),
@@ -2053,6 +2113,7 @@ func TestIntegrationQuitFromBrowse(t *testing.T) {
 		scroller:     scroller,
 		rootPath:     tmp,
 		sizeCache:    make(map[string]int64),
+		sizePending:  make(map[string]struct{}),
 		gitRootSet:   make(map[string]bool),
 		ownerInput:   textinput.New(),
 		projectInput: textinput.New(),
@@ -2088,7 +2149,8 @@ func TestIntegrationWindowResize(t *testing.T) {
 		root:       root,
 		scroller:   scroller,
 		rootPath:   tmp,
-		sizeCache:  make(map[string]int64),
+		sizeCache:    make(map[string]int64),
+		sizePending:  make(map[string]struct{}),
 		gitRootSet: make(map[string]bool),
 		height:     30,
 		width:      80,

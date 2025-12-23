@@ -157,6 +157,13 @@ type BatchStashItemResult struct {
 	Error       error  // Error if stash failed
 }
 
+// sizeResultMsg is sent when an async directory size calculation completes.
+type sizeResultMsg struct {
+	Path string
+	Size int64
+	Err  error
+}
+
 // maxSourceDirEntries limits entries per directory to keep UI responsive.
 const maxSourceDirEntries = 500
 
@@ -638,7 +645,8 @@ type ImportBrowserModel struct {
 	templateVarError     string                 // Validation error for current variable
 
 	// Size cache for directories
-	sizeCache map[string]int64 // path -> size in bytes
+	sizeCache   map[string]int64    // path -> size in bytes
+	sizePending map[string]struct{} // paths with in-flight size calculations
 
 	// Display options
 	showHidden bool // Show hidden files (dotfiles)
@@ -737,12 +745,14 @@ func NewImportBrowser(cfg *config.Config, rootPath string) (*ImportBrowserModel,
 		templateVarInput:    templateVarInput,
 		templateVarValues:   make(map[string]string),
 		sizeCache:           make(map[string]int64),
+		sizePending:         make(map[string]struct{}),
 	}, nil
 }
 
 // Init implements tea.Model.
 func (m ImportBrowserModel) Init() tea.Cmd {
-	return nil
+	// Start async size calculation for initially selected item
+	return m.triggerSelectedSizeCalc()
 }
 
 // Update implements tea.Model.
@@ -757,6 +767,14 @@ func (m ImportBrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			visibleHeight = 5
 		}
 		m.scroller.setHeight(visibleHeight)
+		return m, nil
+
+	case sizeResultMsg:
+		// Async size calculation completed
+		delete(m.sizePending, msg.Path)
+		if msg.Err == nil {
+			m.sizeCache[msg.Path] = msg.Size
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -1376,19 +1394,19 @@ func (m ImportBrowserModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 
 	case "j", "down":
 		m.scroller.moveDown()
-		return m, nil
+		return m, m.triggerSelectedSizeCalc()
 
 	case "k", "up":
 		m.scroller.moveUp()
-		return m, nil
+		return m, m.triggerSelectedSizeCalc()
 
 	case "g":
 		m.scroller.moveToTop()
-		return m, nil
+		return m, m.triggerSelectedSizeCalc()
 
 	case "G":
 		m.scroller.moveToBottom()
-		return m, nil
+		return m, m.triggerSelectedSizeCalc()
 
 	case "l", "right":
 		node := m.scroller.selectedNode()
@@ -1398,7 +1416,7 @@ func (m ImportBrowserModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		} else if m.activePane == IBPaneTree {
 			m.activePane = IBPaneDetails
 		}
-		return m, nil
+		return m, m.triggerSelectedSizeCalc()
 
 	case "h", "left":
 		node := m.scroller.selectedNode()
@@ -1416,7 +1434,7 @@ func (m ImportBrowserModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 			node.toggleExpand(m.gitRootSet, m.showHidden)
 			m.refreshTree()
 		}
-		return m, nil
+		return m, m.triggerSelectedSizeCalc()
 
 	case " ":
 		// Toggle selection for batch operations
@@ -1433,7 +1451,7 @@ func (m ImportBrowserModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		} else {
 			m.activePane = IBPaneTree
 		}
-		return m, nil
+		return m, m.triggerSelectedSizeCalc()
 
 	case "r":
 		// Refresh tree
@@ -3742,32 +3760,62 @@ func formatSize(bytes int64) string {
 	}
 }
 
-// getOrCalculateSize returns the size of a path, using cache if available.
-// For directories, it calculates the size if not cached.
-func (m *ImportBrowserModel) getOrCalculateSize(path string, isDir bool) (int64, bool) {
+// getSizeStatus returns the size of a path if cached, or indicates if calculation is pending.
+// Returns (size, cached, pending). If cached is true, size is valid. If pending is true,
+// calculation is in progress. If both are false, triggerSizeCalc should be called.
+func (m *ImportBrowserModel) getSizeStatus(path string, isDir bool) (size int64, cached bool, pending bool) {
 	if !isDir {
-		// For files, just stat
+		// For files, just stat (fast enough to do synchronously)
 		info, err := os.Stat(path)
 		if err != nil {
-			return 0, false
+			return 0, false, false
 		}
-		return info.Size(), true
+		return info.Size(), true, false
 	}
 
 	// Check cache
 	if size, ok := m.sizeCache[path]; ok {
-		return size, true
+		return size, true, false
 	}
 
-	// Calculate size for directory (synchronous for now)
-	size, err := fs.CalculateSize(path)
-	if err != nil {
-		return 0, false
+	// Check if calculation is in progress
+	if _, ok := m.sizePending[path]; ok {
+		return 0, false, true
 	}
 
-	// Cache the result
-	m.sizeCache[path] = size
-	return size, true
+	return 0, false, false
+}
+
+// triggerSizeCalc starts an async size calculation for a directory if not already cached or pending.
+// Returns a tea.Cmd that will send a sizeResultMsg when complete.
+func (m *ImportBrowserModel) triggerSizeCalc(path string) tea.Cmd {
+	// Check if already cached
+	if _, ok := m.sizeCache[path]; ok {
+		return nil
+	}
+
+	// Check if already pending
+	if _, ok := m.sizePending[path]; ok {
+		return nil
+	}
+
+	// Mark as pending
+	m.sizePending[path] = struct{}{}
+
+	// Return command that calculates size asynchronously
+	return func() tea.Msg {
+		size, err := fs.CalculateSize(path)
+		return sizeResultMsg{Path: path, Size: size, Err: err}
+	}
+}
+
+// triggerSelectedSizeCalc triggers async size calculation for the currently selected node.
+func (m *ImportBrowserModel) triggerSelectedSizeCalc() tea.Cmd {
+	node := m.scroller.selectedNode()
+	if node == nil || !node.IsDir {
+		return nil
+	}
+	return m.triggerSizeCalc(node.Path)
 }
 
 // renderDetailsPane renders the details pane for the selected item.
@@ -3792,9 +3840,13 @@ func (m *ImportBrowserModel) renderDetailsPane() string {
 		sb.WriteString("Type:   File\n")
 	}
 
-	// Show size
-	if size, ok := m.getOrCalculateSize(node.Path, node.IsDir); ok {
+	// Show size (async for directories)
+	if size, cached, pending := m.getSizeStatus(node.Path, node.IsDir); cached {
 		sb.WriteString(fmt.Sprintf("Size:   %s\n", formatSize(size)))
+	} else if pending {
+		sb.WriteString("Size:   Calculating...\n")
+	} else if node.IsDir {
+		sb.WriteString("Size:   —\n") // Will be calculated async
 	}
 
 	if node.IsSymlink {
