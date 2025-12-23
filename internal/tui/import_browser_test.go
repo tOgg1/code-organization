@@ -406,6 +406,53 @@ func TestSourceTreeScrollerUpdateTree(t *testing.T) {
 	}
 }
 
+// TestSourceTreeScrollerSelectByPath tests path-based selection.
+func TestSourceTreeScrollerSelectByPath(t *testing.T) {
+	// Create nodes with paths
+	nodes := []*sourceNode{
+		{Name: "root", Path: "/tmp/root"},
+		{Name: "dir1", Path: "/tmp/root/dir1"},
+		{Name: "file1", Path: "/tmp/root/dir1/file1.txt"},
+		{Name: "dir2", Path: "/tmp/root/dir2"},
+		{Name: "file2", Path: "/tmp/root/dir2/file2.txt"},
+	}
+
+	scroller := newSourceTreeScroller(nodes, 5)
+
+	// Select by exact path
+	if !scroller.selectByPath("/tmp/root/dir2") {
+		t.Error("selectByPath should return true for existing path")
+	}
+	if scroller.selected != 3 {
+		t.Errorf("expected selected=3 for dir2, got %d", scroller.selected)
+	}
+
+	// Select by path that doesn't exist - should find parent
+	if !scroller.selectByPath("/tmp/root/dir1/subdir/missing.txt") {
+		t.Error("selectByPath should return true and select parent")
+	}
+	if scroller.selected != 1 {
+		t.Errorf("expected selected=1 for dir1 (parent), got %d", scroller.selected)
+	}
+
+	// Select by completely non-existent path
+	scroller.selected = 0 // Reset
+	if scroller.selectByPath("/nonexistent/path") {
+		t.Error("selectByPath should return false for non-existent path with no parent")
+	}
+
+	// Empty path
+	if scroller.selectByPath("") {
+		t.Error("selectByPath should return false for empty path")
+	}
+
+	// Empty tree
+	emptyScroller := newSourceTreeScroller([]*sourceNode{}, 5)
+	if emptyScroller.selectByPath("/tmp/root") {
+		t.Error("selectByPath should return false for empty tree")
+	}
+}
+
 // TestBuildSourceTreeSymlink tests symlink handling.
 func TestBuildSourceTreeSymlink(t *testing.T) {
 	tmp := t.TempDir()
@@ -2145,15 +2192,15 @@ func TestIntegrationWindowResize(t *testing.T) {
 	scroller := newSourceTreeScroller(flatTree, 20)
 
 	model := ImportBrowserModel{
-		state:      StateBrowse,
-		root:       root,
-		scroller:   scroller,
-		rootPath:   tmp,
-		sizeCache:    make(map[string]int64),
-		sizePending:  make(map[string]struct{}),
-		gitRootSet: make(map[string]bool),
-		height:     30,
-		width:      80,
+		state:       StateBrowse,
+		root:        root,
+		scroller:    scroller,
+		rootPath:    tmp,
+		sizeCache:   make(map[string]int64),
+		sizePending: make(map[string]struct{}),
+		gitRootSet:  make(map[string]bool),
+		height:      30,
+		width:       80,
 	}
 
 	// Send window size message

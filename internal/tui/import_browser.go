@@ -425,6 +425,39 @@ func (s *sourceTreeScroller) updateTree(flatTree []*sourceNode) {
 	s.ensureVisible()
 }
 
+// selectByPath finds and selects a node by its path.
+// If the exact path is not found, it tries to select the nearest parent.
+// Returns true if a node was found and selected.
+func (s *sourceTreeScroller) selectByPath(targetPath string) bool {
+	if targetPath == "" || len(s.flatTree) == 0 {
+		return false
+	}
+
+	// First, try to find exact match
+	for i, node := range s.flatTree {
+		if node.Path == targetPath {
+			s.selected = i
+			s.ensureVisible()
+			return true
+		}
+	}
+
+	// If not found, try to find the nearest parent that exists
+	// Walk up the path hierarchy looking for a match
+	for targetPath != "" && targetPath != "/" && targetPath != "." {
+		targetPath = filepath.Dir(targetPath)
+		for i, node := range s.flatTree {
+			if node.Path == targetPath {
+				s.selected = i
+				s.ensureVisible()
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // setHeight updates the visible height.
 func (s *sourceTreeScroller) setHeight(height int) {
 	s.height = height
@@ -2705,7 +2738,14 @@ func (m *ImportBrowserModel) refreshTree() {
 }
 
 // refresh rebuilds the entire tree from the filesystem.
+// It preserves the current selection position by path when possible.
 func (m *ImportBrowserModel) refresh() {
+	// Save current selection path before rebuilding
+	var previousPath string
+	if node := m.scroller.selectedNode(); node != nil {
+		previousPath = node.Path
+	}
+
 	root, err := buildSourceTree(m.rootPath, m.showHidden)
 	if err != nil {
 		m.message = fmt.Sprintf("Refresh failed: %v", err)
@@ -2722,6 +2762,12 @@ func (m *ImportBrowserModel) refresh() {
 
 	m.root = root
 	m.refreshTree()
+
+	// Restore selection to previous path (or nearest parent)
+	if previousPath != "" {
+		m.scroller.selectByPath(previousPath)
+	}
+
 	m.message = "Refreshed"
 	m.messageIsError = false
 }
