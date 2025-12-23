@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -163,6 +164,20 @@ type sizeResultMsg struct {
 	Size int64
 	Err  error
 }
+
+// operationResultMsg is sent when an async operation (stash, delete, etc.) completes.
+type operationResultMsg struct {
+	Operation string // "stash", "delete", "trash", "import"
+	Success   bool
+	Message   string // Success or error message
+	Err       error
+}
+
+// spinnerTickMsg is sent to animate the loading spinner.
+type spinnerTickMsg struct{}
+
+// spinnerFrames defines the animation frames for the loading spinner.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // maxSourceDirEntries limits entries per directory to keep UI responsive.
 const maxSourceDirEntries = 500
@@ -593,6 +608,11 @@ type ImportBrowserModel struct {
 	message        string
 	messageIsError bool
 
+	// Loading state for async operations
+	loading        bool   // True when an async operation is in progress
+	loadingMessage string // Description of what's being done
+	spinnerFrame   int    // Current spinner animation frame
+
 	// Import config state
 	importTarget   *sourceNode     // The folder being imported
 	ownerInput     textinput.Model // Owner input field
@@ -777,7 +797,34 @@ func (m ImportBrowserModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case operationResultMsg:
+		// Async operation completed
+		m.loading = false
+		m.loadingMessage = ""
+		m.message = msg.Message
+		m.messageIsError = !msg.Success
+		if msg.Success {
+			m.refresh() // Refresh tree after successful operation
+		}
+		m.state = StateBrowse
+		// Clear operation-specific state
+		m.deleteTarget = nil
+		m.stashTarget = nil
+		return m, nil
+
+	case spinnerTickMsg:
+		// Animate spinner while loading
+		if m.loading {
+			m.spinnerFrame = (m.spinnerFrame + 1) % len(spinnerFrames)
+			return m, m.spinnerTick()
+		}
+		return m, nil
+
 	case tea.KeyMsg:
+		// Ignore key presses while loading
+		if m.loading {
+			return m, nil
+		}
 		return m.handleKeyPress(msg)
 	}
 
@@ -2298,14 +2345,12 @@ func (m ImportBrowserModel) handleStashConfirmKeys(msg tea.KeyMsg) (tea.Model, t
 	return m, nil
 }
 
-// executeStash performs the actual stash operation.
+// executeStash performs the actual stash operation asynchronously.
 func (m ImportBrowserModel) executeStash() (tea.Model, tea.Cmd) {
 	if m.stashTarget == nil {
 		m.stashError = "no folder selected"
 		return m, nil
 	}
-
-	m.state = StateStashExecute
 
 	// Get archive name
 	name := strings.TrimSpace(m.stashNameInput.Value())
@@ -2313,39 +2358,50 @@ func (m ImportBrowserModel) executeStash() (tea.Model, tea.Cmd) {
 		name = m.stashTarget.Name
 	}
 
-	opts := archive.StashOptions{
-		Name:        name,
-		DeleteAfter: m.stashDeleteAfter,
+	// Capture values for async operation
+	cfg := m.cfg
+	targetPath := m.stashTarget.Path
+	targetName := m.stashTarget.Name
+	deleteAfter := m.stashDeleteAfter
+
+	// Set loading state
+	m.loading = true
+	if deleteAfter {
+		m.loadingMessage = fmt.Sprintf("Stashing and deleting: %s...", targetName)
+	} else {
+		m.loadingMessage = fmt.Sprintf("Stashing: %s...", targetName)
+	}
+	m.spinnerFrame = 0
+
+	// Return commands: one for the operation, one for spinner animation
+	operationCmd := func() tea.Msg {
+		opts := archive.StashOptions{
+			Name:        name,
+			DeleteAfter: deleteAfter,
+		}
+
+		result, err := archive.StashFolder(cfg, targetPath, opts)
+		if err != nil {
+			return operationResultMsg{
+				Operation: "stash",
+				Success:   false,
+				Message:   fmt.Sprintf("Stash failed: %v", err),
+				Err:       err,
+			}
+		}
+
+		msg := fmt.Sprintf("Stashed: %s", result.ArchivePath)
+		if result.Deleted {
+			msg += " (source deleted)"
+		}
+		return operationResultMsg{
+			Operation: "stash",
+			Success:   true,
+			Message:   msg,
+		}
 	}
 
-	result, err := archive.StashFolder(m.cfg, m.stashTarget.Path, opts)
-	if err != nil {
-		m.stashError = err.Error()
-		m.state = StateStashConfirm
-		return m, nil
-	}
-
-	// Success - store results
-	m.result.Action = "stash"
-	m.result.Success = true
-	m.result.ArchivePath = result.ArchivePath
-	m.result.SourceStashed = result.SourcePath
-
-	// If deleted, refresh tree
-	if result.Deleted {
-		m.refresh()
-	}
-
-	// Show success message and return to browse
-	m.message = fmt.Sprintf("Stashed: %s", result.ArchivePath)
-	if result.Deleted {
-		m.message += " (source deleted)"
-	}
-	m.messageIsError = false
-	m.state = StateBrowse
-	m.stashTarget = nil
-
-	return m, nil
+	return m, tea.Batch(operationCmd, m.spinnerTick())
 }
 
 // handleDeleteConfirmKeys handles keyboard input in delete/trash confirm states.
@@ -2670,10 +2726,39 @@ func (m *ImportBrowserModel) refresh() {
 	m.messageIsError = false
 }
 
+// spinnerTick returns a command that triggers a spinner animation tick.
+func (m ImportBrowserModel) spinnerTick() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
+		return spinnerTickMsg{}
+	})
+}
+
+// renderLoadingView renders a loading indicator overlay.
+func (m ImportBrowserModel) renderLoadingView() string {
+	var sb strings.Builder
+
+	sb.WriteString("\n\n")
+	sb.WriteString(ibHeaderStyle.Render("Working...") + "\n\n")
+
+	// Show animated spinner
+	spinner := spinnerFrames[m.spinnerFrame%len(spinnerFrames)]
+	sb.WriteString(fmt.Sprintf("  %s %s\n", spinner, m.loadingMessage))
+
+	sb.WriteString("\n\n")
+	sb.WriteString(ibHelpStyle.Render("Please wait..."))
+
+	return sb.String()
+}
+
 // View implements tea.Model.
 func (m ImportBrowserModel) View() string {
 	if m.width == 0 {
 		return "Loading..."
+	}
+
+	// Show loading overlay if an async operation is in progress
+	if m.loading {
+		return m.renderLoadingView()
 	}
 
 	switch m.state {
