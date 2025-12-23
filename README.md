@@ -980,6 +980,8 @@ Browse → Select → Configure → (Template) → (Extra Files) → Preview →
 | `i` | Import selected folder(s) |
 | `s` | Stash selected folder(s) (keep source) |
 | `S` | Stash selected folder(s) (delete source) |
+| `d` | Delete selected folder (permanent, with confirmation) |
+| `t` | Move selected folder to trash |
 | `a` | Add to existing workspace |
 | `q` | Quit |
 

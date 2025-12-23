@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -56,6 +57,8 @@ const (
 	StateBatchStashConfirm                            // Confirming batch stash of multiple folders
 	StateBatchStashExecute                            // Executing batch stash
 	StateBatchStashSummary                            // Showing batch stash results
+	StateDeleteConfirm                                // Confirming delete operation
+	StateTrashConfirm                                 // Confirming trash operation
 	StateComplete                                     // Operation completed
 )
 
@@ -96,6 +99,10 @@ func (s ImportBrowserState) String() string {
 		return "Batch Stashing"
 	case StateBatchStashSummary:
 		return "Batch Stash Summary"
+	case StateDeleteConfirm:
+		return "Delete Confirm"
+	case StateTrashConfirm:
+		return "Trash Confirm"
 	case StateComplete:
 		return "Complete"
 	default:
@@ -593,6 +600,10 @@ type ImportBrowserModel struct {
 	stashFocusIdx    int             // 0 = name, 1 = delete option
 	stashError       string          // Stash validation error
 
+	// Delete/trash state
+	deleteTarget  *sourceNode // The folder being deleted/trashed
+	deleteIsTrash bool        // True if using trash, false if permanent delete
+
 	// Extra files state
 	extraFilesItems        []extraFileItem  // Non-git items found
 	extraFilesSelected     int              // Currently selected item index
@@ -784,6 +795,8 @@ func (m ImportBrowserModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		return m.handleBatchStashConfirmKeys(msg)
 	case StateBatchStashSummary:
 		return m.handleBatchStashSummaryKeys(msg)
+	case StateDeleteConfirm, StateTrashConfirm:
+		return m.handleDeleteConfirmKeys(msg)
 	default:
 		// Other states will be handled in future tasks
 		return m, nil
@@ -1489,6 +1502,26 @@ func (m ImportBrowserModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		node := m.scroller.selectedNode()
 		if node != nil && node.IsDir {
 			return m.startAddToWorkspace(node)
+		}
+		return m, nil
+
+	case "d":
+		// Delete selected folder (permanent)
+		node := m.scroller.selectedNode()
+		if node != nil && node.IsDir && node != m.root {
+			m.deleteTarget = node
+			m.deleteIsTrash = false
+			m.state = StateDeleteConfirm
+		}
+		return m, nil
+
+	case "t":
+		// Trash selected folder (move to system trash)
+		node := m.scroller.selectedNode()
+		if node != nil && node.IsDir && node != m.root {
+			m.deleteTarget = node
+			m.deleteIsTrash = true
+			m.state = StateTrashConfirm
 		}
 		return m, nil
 	}
@@ -2297,6 +2330,122 @@ func (m ImportBrowserModel) executeStash() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleDeleteConfirmKeys handles keyboard input in delete/trash confirm states.
+func (m ImportBrowserModel) handleDeleteConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		m.result.Aborted = true
+		return m, tea.Quit
+
+	case "esc", "n", "N":
+		// Cancel, return to browse
+		m.state = StateBrowse
+		m.deleteTarget = nil
+		return m, nil
+
+	case "y", "Y", "enter":
+		// Confirm delete/trash
+		return m.executeDelete()
+	}
+
+	return m, nil
+}
+
+// executeDelete performs the delete or trash operation.
+func (m ImportBrowserModel) executeDelete() (tea.Model, tea.Cmd) {
+	if m.deleteTarget == nil {
+		m.state = StateBrowse
+		return m, nil
+	}
+
+	targetPath := m.deleteTarget.Path
+	targetName := m.deleteTarget.Name
+
+	var err error
+	if m.deleteIsTrash {
+		err = trashPath(targetPath)
+	} else {
+		err = os.RemoveAll(targetPath)
+	}
+
+	if err != nil {
+		if m.deleteIsTrash {
+			m.message = fmt.Sprintf("Trash failed: %v", err)
+		} else {
+			m.message = fmt.Sprintf("Delete failed: %v", err)
+		}
+		m.messageIsError = true
+		m.state = StateBrowse
+		m.deleteTarget = nil
+		return m, nil
+	}
+
+	// Success - refresh tree and show message
+	m.refresh()
+	if m.deleteIsTrash {
+		m.message = fmt.Sprintf("Moved to trash: %s", targetName)
+	} else {
+		m.message = fmt.Sprintf("Deleted: %s", targetName)
+	}
+	m.messageIsError = false
+	m.state = StateBrowse
+	m.deleteTarget = nil
+
+	return m, nil
+}
+
+// trashPath moves a file or directory to the system trash.
+// On macOS, it uses the 'trash' command if available, otherwise falls back to AppleScript.
+// On other systems, it falls back to permanent deletion with a warning.
+func trashPath(path string) error {
+	// Try the 'trash' command first (from Homebrew: brew install trash)
+	if _, err := exec.LookPath("trash"); err == nil {
+		cmd := exec.Command("trash", path)
+		if err := cmd.Run(); err == nil {
+			return nil
+		}
+	}
+
+	// On macOS, try AppleScript as fallback
+	if isRunningOnMac() {
+		// Use AppleScript to move to trash
+		script := fmt.Sprintf(`tell application "Finder" to delete POSIX file %q`, path)
+		cmd := exec.Command("osascript", "-e", script)
+		if err := cmd.Run(); err == nil {
+			return nil
+		}
+	}
+
+	// Try freedesktop trash (gio trash) on Linux
+	if _, err := exec.LookPath("gio"); err == nil {
+		cmd := exec.Command("gio", "trash", path)
+		if err := cmd.Run(); err == nil {
+			return nil
+		}
+	}
+
+	// Try trash-cli on Linux
+	if _, err := exec.LookPath("trash-put"); err == nil {
+		cmd := exec.Command("trash-put", path)
+		if err := cmd.Run(); err == nil {
+			return nil
+		}
+	}
+
+	// No trash available - return error suggesting permanent delete
+	return fmt.Errorf("no trash utility available; use 'd' for permanent delete")
+}
+
+// isRunningOnMac returns true if running on macOS.
+func isRunningOnMac() bool {
+	cmd := exec.Command("uname", "-s")
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "Darwin"
+}
+
 // checkForExtraFiles looks for non-git files and transitions to the appropriate state.
 func (m ImportBrowserModel) checkForExtraFiles() (tea.Model, tea.Cmd) {
 	if m.importTarget == nil {
@@ -2538,6 +2687,10 @@ func (m ImportBrowserModel) View() string {
 		return m.renderBatchStashExecuteView()
 	case StateBatchStashSummary:
 		return m.renderBatchStashSummaryView()
+	case StateDeleteConfirm:
+		return m.renderDeleteConfirmView()
+	case StateTrashConfirm:
+		return m.renderTrashConfirmView()
 	default:
 		return m.renderBrowseView()
 	}
@@ -3356,6 +3509,48 @@ func (m ImportBrowserModel) renderBatchStashSummaryView() string {
 
 	// Help
 	sb.WriteString("\n" + ibHelpStyle.Render("enter/esc: return to browse"))
+
+	return sb.String()
+}
+
+// renderDeleteConfirmView renders the delete confirmation dialog.
+func (m ImportBrowserModel) renderDeleteConfirmView() string {
+	var sb strings.Builder
+
+	sb.WriteString(ibErrorStyle.Render("⚠ PERMANENT DELETE") + "\n\n")
+
+	if m.deleteTarget != nil {
+		sb.WriteString(fmt.Sprintf("Folder: %s\n", ibSelectedStyle.Render(m.deleteTarget.Name)))
+		sb.WriteString(fmt.Sprintf("Path:   %s\n\n", m.deleteTarget.Path))
+	}
+
+	sb.WriteString(ibErrorStyle.Render("This will PERMANENTLY delete the folder and all its contents.") + "\n")
+	sb.WriteString(ibErrorStyle.Render("This action cannot be undone!") + "\n\n")
+
+	sb.WriteString("Are you sure you want to continue?\n\n")
+
+	sb.WriteString(ibHelpStyle.Render("y/enter: confirm delete • n/esc: cancel"))
+
+	return sb.String()
+}
+
+// renderTrashConfirmView renders the trash confirmation dialog.
+func (m ImportBrowserModel) renderTrashConfirmView() string {
+	var sb strings.Builder
+
+	sb.WriteString(ibHeaderStyle.Render("Move to Trash") + "\n\n")
+
+	if m.deleteTarget != nil {
+		sb.WriteString(fmt.Sprintf("Folder: %s\n", ibSelectedStyle.Render(m.deleteTarget.Name)))
+		sb.WriteString(fmt.Sprintf("Path:   %s\n\n", m.deleteTarget.Path))
+	}
+
+	sb.WriteString("This will move the folder to your system's trash.\n")
+	sb.WriteString("You can recover it from the trash if needed.\n\n")
+
+	sb.WriteString("Move to trash?\n\n")
+
+	sb.WriteString(ibHelpStyle.Render("y/enter: confirm • n/esc: cancel"))
 
 	return sb.String()
 }

@@ -511,6 +511,8 @@ func TestImportBrowserStateString(t *testing.T) {
 		{StateBatchStashConfirm, "Batch Stash Confirm"},
 		{StateBatchStashExecute, "Batch Stashing"},
 		{StateBatchStashSummary, "Batch Stash Summary"},
+		{StateDeleteConfirm, "Delete Confirm"},
+		{StateTrashConfirm, "Trash Confirm"},
 		{StateComplete, "Complete"},
 		{ImportBrowserState(999), "Unknown"},
 	}
