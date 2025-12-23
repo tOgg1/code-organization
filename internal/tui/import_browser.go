@@ -426,7 +426,8 @@ func (s *sourceTreeScroller) updateTree(flatTree []*sourceNode) {
 }
 
 // selectByPath finds and selects a node by its path.
-// If the exact path is not found, it tries to select the nearest parent.
+// If the exact path is not found, it tries to select a sibling in the same parent directory,
+// or falls back to the parent directory itself.
 // Returns true if a node was found and selected.
 func (s *sourceTreeScroller) selectByPath(targetPath string) bool {
 	if targetPath == "" || len(s.flatTree) == 0 {
@@ -442,7 +443,27 @@ func (s *sourceTreeScroller) selectByPath(targetPath string) bool {
 		}
 	}
 
-	// If not found, try to find the nearest parent that exists
+	// If exact path not found, look for a sibling in the same parent directory.
+	// This provides better UX when a folder is deleted - we stay at the same level.
+	parentDir := filepath.Dir(targetPath)
+	if parentDir != "" && parentDir != "/" && parentDir != "." {
+		// Find all siblings (nodes with the same parent directory)
+		var siblingIdx int = -1
+		for i, node := range s.flatTree {
+			if filepath.Dir(node.Path) == parentDir {
+				siblingIdx = i
+				// Prefer the first sibling we find (could be the one after the deleted item)
+				break
+			}
+		}
+		if siblingIdx >= 0 {
+			s.selected = siblingIdx
+			s.ensureVisible()
+			return true
+		}
+	}
+
+	// If no sibling found, try to find the nearest parent that exists
 	// Walk up the path hierarchy looking for a match
 	for targetPath != "" && targetPath != "/" && targetPath != "." {
 		targetPath = filepath.Dir(targetPath)
@@ -2738,13 +2759,16 @@ func (m *ImportBrowserModel) refreshTree() {
 }
 
 // refresh rebuilds the entire tree from the filesystem.
-// It preserves the current selection position by path when possible.
+// It preserves the current selection position and expansion state.
 func (m *ImportBrowserModel) refresh() {
 	// Save current selection path before rebuilding
 	var previousPath string
 	if node := m.scroller.selectedNode(); node != nil {
 		previousPath = node.Path
 	}
+
+	// Collect all expanded paths from the current tree
+	expandedPaths := m.collectExpandedPaths()
 
 	root, err := buildSourceTree(m.rootPath, m.showHidden)
 	if err != nil {
@@ -2761,15 +2785,57 @@ func (m *ImportBrowserModel) refresh() {
 	}
 
 	m.root = root
+
+	// Restore expansion state to the new tree
+	m.restoreExpandedPaths(expandedPaths)
+
 	m.refreshTree()
 
-	// Restore selection to previous path (or nearest parent)
+	// Restore selection to previous path (or nearest sibling/parent)
 	if previousPath != "" {
 		m.scroller.selectByPath(previousPath)
 	}
 
 	m.message = "Refreshed"
 	m.messageIsError = false
+}
+
+// collectExpandedPaths returns a set of paths for all expanded directories.
+func (m *ImportBrowserModel) collectExpandedPaths() map[string]bool {
+	expanded := make(map[string]bool)
+	if m.root != nil {
+		collectExpandedPathsRecursive(m.root, expanded)
+	}
+	return expanded
+}
+
+// collectExpandedPathsRecursive walks the tree and collects expanded paths.
+func collectExpandedPathsRecursive(node *sourceNode, expanded map[string]bool) {
+	if node.IsDir && node.IsExpanded {
+		expanded[node.Path] = true
+		for _, child := range node.Children {
+			collectExpandedPathsRecursive(child, expanded)
+		}
+	}
+}
+
+// restoreExpandedPaths expands directories in the new tree that were previously expanded.
+func (m *ImportBrowserModel) restoreExpandedPaths(expandedPaths map[string]bool) {
+	if m.root != nil {
+		restoreExpandedPathsRecursive(m.root, expandedPaths, m.gitRootSet, m.showHidden)
+	}
+}
+
+// restoreExpandedPathsRecursive walks the new tree and expands matching paths.
+func restoreExpandedPathsRecursive(node *sourceNode, expandedPaths map[string]bool, gitRootSet map[string]bool, showHidden bool) {
+	if node.IsDir && expandedPaths[node.Path] {
+		// Expand this node (load its children if not already loaded)
+		node.expandNode(gitRootSet, showHidden)
+		// Recursively restore children
+		for _, child := range node.Children {
+			restoreExpandedPathsRecursive(child, expandedPaths, gitRootSet, showHidden)
+		}
+	}
 }
 
 // spinnerTick returns a command that triggers a spinner animation tick.

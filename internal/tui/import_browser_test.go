@@ -453,6 +453,146 @@ func TestSourceTreeScrollerSelectByPath(t *testing.T) {
 	}
 }
 
+// TestSourceTreeScrollerSelectAfterDelete simulates the scenario where
+// a folder is deleted and we want to select the nearest sibling or parent.
+func TestSourceTreeScrollerSelectAfterDelete(t *testing.T) {
+	// Initial tree structure:
+	// /tmp/root (index 0)
+	//   dir1 (index 1)
+	//   dir2 (index 2) <- selected, then deleted
+	//   dir3 (index 3)
+	initialNodes := []*sourceNode{
+		{Name: "root", Path: "/tmp/root"},
+		{Name: "dir1", Path: "/tmp/root/dir1"},
+		{Name: "dir2", Path: "/tmp/root/dir2"},
+		{Name: "dir3", Path: "/tmp/root/dir3"},
+	}
+
+	scroller := newSourceTreeScroller(initialNodes, 5)
+
+	// Select dir2
+	scroller.selectByPath("/tmp/root/dir2")
+	if scroller.selected != 2 {
+		t.Fatalf("expected selected=2 for dir2, got %d", scroller.selected)
+	}
+
+	// Save path before delete
+	previousPath := scroller.selectedNode().Path
+	t.Logf("Previous path: %s", previousPath)
+
+	// Simulate tree after dir2 is deleted
+	afterDeleteNodes := []*sourceNode{
+		{Name: "root", Path: "/tmp/root"},
+		{Name: "dir1", Path: "/tmp/root/dir1"},
+		{Name: "dir3", Path: "/tmp/root/dir3"},
+	}
+
+	// Update tree (this clamps selected to valid range)
+	scroller.updateTree(afterDeleteNodes)
+	t.Logf("After updateTree: selected=%d, tree len=%d", scroller.selected, len(scroller.flatTree))
+
+	// Try to restore to previous path
+	found := scroller.selectByPath(previousPath)
+	t.Logf("selectByPath(%s) returned %v, selected=%d", previousPath, found, scroller.selected)
+
+	if !found {
+		t.Error("selectByPath should find sibling when exact path is deleted")
+	}
+
+	// Should select a sibling (dir1 or dir3) since dir2 no longer exists
+	selectedNode := scroller.selectedNode()
+	if selectedNode == nil {
+		t.Fatal("selectedNode is nil")
+	}
+	t.Logf("Selected node: %s (path: %s)", selectedNode.Name, selectedNode.Path)
+
+	// We should select dir1 (first sibling found in the same parent)
+	if selectedNode.Path != "/tmp/root/dir1" {
+		t.Errorf("expected to select sibling /tmp/root/dir1, got %s", selectedNode.Path)
+	}
+}
+
+// TestSourceTreeScrollerSelectAfterDeleteNoSiblings tests fallback to parent when no siblings exist.
+func TestSourceTreeScrollerSelectAfterDeleteNoSiblings(t *testing.T) {
+	// Tree structure where the only child is deleted:
+	// /tmp/root (index 0)
+	//   onlychild (index 1) <- selected, then deleted
+	initialNodes := []*sourceNode{
+		{Name: "root", Path: "/tmp/root"},
+		{Name: "onlychild", Path: "/tmp/root/onlychild"},
+	}
+
+	scroller := newSourceTreeScroller(initialNodes, 5)
+	scroller.selectByPath("/tmp/root/onlychild")
+
+	previousPath := scroller.selectedNode().Path
+
+	// After deletion, only root remains
+	afterDeleteNodes := []*sourceNode{
+		{Name: "root", Path: "/tmp/root"},
+	}
+
+	scroller.updateTree(afterDeleteNodes)
+	found := scroller.selectByPath(previousPath)
+
+	if !found {
+		t.Error("selectByPath should find parent when no siblings exist")
+	}
+
+	// Should select the parent since there are no siblings
+	selectedNode := scroller.selectedNode()
+	if selectedNode.Path != "/tmp/root" {
+		t.Errorf("expected to select parent /tmp/root, got %s", selectedNode.Path)
+	}
+}
+
+// TestSelectByPathWithNestedSiblings tests that siblings are found in nested expanded directories.
+func TestSelectByPathWithNestedSiblings(t *testing.T) {
+	// Tree structure with nested expanded directory:
+	// /tmp/root (expanded)
+	//   parent/ (expanded)
+	//     child1/
+	//     child2/ <- selected, then deleted
+	//     child3/
+	nodes := []*sourceNode{
+		{Name: "root", Path: "/tmp/root"},
+		{Name: "parent", Path: "/tmp/root/parent"},
+		{Name: "child1", Path: "/tmp/root/parent/child1"},
+		{Name: "child2", Path: "/tmp/root/parent/child2"},
+		{Name: "child3", Path: "/tmp/root/parent/child3"},
+	}
+
+	scroller := newSourceTreeScroller(nodes, 10)
+	scroller.selectByPath("/tmp/root/parent/child2")
+
+	if scroller.selected != 3 {
+		t.Fatalf("expected selected=3 for child2, got %d", scroller.selected)
+	}
+
+	previousPath := scroller.selectedNode().Path
+
+	// Simulate tree after child2 is deleted (parent is still expanded)
+	afterDeleteNodes := []*sourceNode{
+		{Name: "root", Path: "/tmp/root"},
+		{Name: "parent", Path: "/tmp/root/parent"},
+		{Name: "child1", Path: "/tmp/root/parent/child1"},
+		{Name: "child3", Path: "/tmp/root/parent/child3"},
+	}
+
+	scroller.updateTree(afterDeleteNodes)
+	found := scroller.selectByPath(previousPath)
+
+	if !found {
+		t.Error("selectByPath should find sibling in nested directory")
+	}
+
+	// Should select child1 (first sibling with same parent)
+	selectedNode := scroller.selectedNode()
+	if selectedNode.Path != "/tmp/root/parent/child1" {
+		t.Errorf("expected to select sibling /tmp/root/parent/child1, got %s", selectedNode.Path)
+	}
+}
+
 // TestBuildSourceTreeSymlink tests symlink handling.
 func TestBuildSourceTreeSymlink(t *testing.T) {
 	tmp := t.TempDir()
