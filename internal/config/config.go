@@ -29,6 +29,13 @@ type EmbeddingsConfig struct {
 	OpenAIAPIKeyEnv string `json:"openai_api_key_env,omitempty"`
 }
 
+// TmpConfig holds configuration for temporary workspaces
+type TmpConfig struct {
+	// CleanupDays is the number of days of inactivity before a tmp workspace
+	// is eligible for cleanup (default: 30)
+	CleanupDays int `json:"cleanup_days,omitempty"`
+}
+
 // IndexingConfig holds configuration for code indexing
 type IndexingConfig struct {
 	// ChunkMaxLines is the maximum number of lines per chunk (default: 100)
@@ -63,6 +70,7 @@ type Config struct {
 	Servers    map[string]ServerConfig `json:"servers,omitempty"`
 	Embeddings *EmbeddingsConfig       `json:"embeddings,omitempty"`
 	Indexing   *IndexingConfig         `json:"indexing,omitempty"`
+	Tmp        *TmpConfig              `json:"tmp,omitempty"`
 }
 
 const CurrentConfigSchema = 1
@@ -274,6 +282,21 @@ func (c *Config) GetIndexingConfig() IndexingConfig {
 		}
 		if len(c.Indexing.IncludeLanguages) > 0 {
 			cfg.IncludeLanguages = c.Indexing.IncludeLanguages
+		}
+	}
+
+	return cfg
+}
+
+// GetTmpConfig returns the tmp config with defaults applied
+func (c *Config) GetTmpConfig() TmpConfig {
+	cfg := TmpConfig{
+		CleanupDays: 30,
+	}
+
+	if c.Tmp != nil {
+		if c.Tmp.CleanupDays > 0 {
+			cfg.CleanupDays = c.Tmp.CleanupDays
 		}
 	}
 

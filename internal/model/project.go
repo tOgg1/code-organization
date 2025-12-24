@@ -14,6 +14,7 @@ const (
 	StatePaused   ProjectState = "paused"
 	StateArchived ProjectState = "archived"
 	StateScratch  ProjectState = "scratch"
+	StateTmp      ProjectState = "tmp"
 )
 
 type RepoSpec struct {

@@ -9,9 +9,15 @@ import (
 )
 
 var workspacePattern = regexp.MustCompile(`^[a-z0-9-]+--[a-z0-9-]+(--(poc|demo|legacy|migration|infra))?$`)
+var tmpWorkspacePattern = regexp.MustCompile(`^tmp--[a-z0-9-]+$`)
 
 func IsValidWorkspaceSlug(name string) bool {
 	return workspacePattern.MatchString(name)
+}
+
+// IsTmpSlug returns true if the name matches the tmp workspace pattern (tmp--name)
+func IsTmpSlug(name string) bool {
+	return tmpWorkspacePattern.MatchString(name)
 }
 
 func ListWorkspaces(codeRoot string) ([]string, error) {
@@ -30,6 +36,27 @@ func ListWorkspaces(codeRoot string) ([]string, error) {
 			continue
 		}
 		if IsValidWorkspaceSlug(name) {
+			workspaces = append(workspaces, name)
+		}
+	}
+
+	return workspaces, nil
+}
+
+// ListTmpWorkspaces returns all tmp--* directories in the code root
+func ListTmpWorkspaces(codeRoot string) ([]string, error) {
+	entries, err := os.ReadDir(codeRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	var workspaces []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if IsTmpSlug(name) {
 			workspaces = append(workspaces, name)
 		}
 	}
