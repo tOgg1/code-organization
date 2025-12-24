@@ -37,12 +37,12 @@ const CurrentIndexSchema = 1
 
 func NewIndexRecord(slug, path string) *IndexRecord {
 	return &IndexRecord{
-		Schema:    CurrentIndexSchema,
-		Slug:      slug,
-		Path:      path,
-		Tags:      []string{},
-		Repos:     []IndexRepoInfo{},
-		Valid:     true,
+		Schema: CurrentIndexSchema,
+		Slug:   slug,
+		Path:   path,
+		Tags:   []string{},
+		Repos:  []IndexRepoInfo{},
+		Valid:  true,
 	}
 }
 
@@ -116,6 +116,17 @@ func (idx *Index) Save(path string) error {
 
 func (idx *Index) Add(record *IndexRecord) {
 	idx.Records = append(idx.Records, record)
+}
+
+// Remove removes a record by slug. Returns true if a record was removed.
+func (idx *Index) Remove(slug string) bool {
+	for i, r := range idx.Records {
+		if r.Slug == slug {
+			idx.Records = append(idx.Records[:i], idx.Records[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 func (idx *Index) FindBySlug(slug string) *IndexRecord {

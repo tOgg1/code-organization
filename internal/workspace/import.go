@@ -360,3 +360,64 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	}
 	return os.WriteFile(dst, data, mode)
 }
+
+// RenameResult holds the result of a workspace rename operation.
+type RenameResult struct {
+	OldSlug string
+	NewSlug string
+	OldPath string
+	NewPath string
+}
+
+// RenameWorkspace renames a workspace by updating its folder name and project.json.
+func RenameWorkspace(cfg *config.Config, currentSlug, newOwner, newProject string) (*RenameResult, error) {
+	// Validate new slug
+	newSlug := newOwner + "--" + newProject
+	if !fs.IsValidWorkspaceSlug(newSlug) {
+		return nil, fmt.Errorf("invalid new workspace slug: %s", newSlug)
+	}
+
+	// Check current workspace exists
+	if !fs.WorkspaceExists(cfg.CodeRoot, currentSlug) {
+		return nil, fmt.Errorf("workspace does not exist: %s", currentSlug)
+	}
+
+	// Check new workspace doesn't exist (unless it's the same)
+	if currentSlug != newSlug && fs.WorkspaceExists(cfg.CodeRoot, newSlug) {
+		return nil, fmt.Errorf("workspace already exists: %s", newSlug)
+	}
+
+	oldPath := filepath.Join(cfg.CodeRoot, currentSlug)
+	newPath := filepath.Join(cfg.CodeRoot, newSlug)
+
+	// Load and update project.json
+	projectPath := filepath.Join(oldPath, "project.json")
+	proj, err := model.LoadProject(projectPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load project.json: %w", err)
+	}
+
+	// Update project metadata
+	proj.Slug = newSlug
+	proj.Owner = newOwner
+	proj.Name = newProject
+
+	// Save updated project.json (still in old location)
+	if err := proj.Save(oldPath); err != nil {
+		return nil, fmt.Errorf("failed to update project.json: %w", err)
+	}
+
+	// Rename folder if slug changed
+	if currentSlug != newSlug {
+		if err := os.Rename(oldPath, newPath); err != nil {
+			return nil, fmt.Errorf("failed to rename workspace folder: %w", err)
+		}
+	}
+
+	return &RenameResult{
+		OldSlug: currentSlug,
+		NewSlug: newSlug,
+		OldPath: oldPath,
+		NewPath: newPath,
+	}, nil
+}
