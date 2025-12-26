@@ -1377,6 +1377,7 @@ func (m *ImportBrowserModel) ensureAddToVisible() {
 // checkForExtraFilesAddTo checks for extra files and transitions to appropriate state for add-to mode.
 func (m ImportBrowserModel) checkForExtraFilesAddTo() (tea.Model, tea.Cmd) {
 	if m.importTarget == nil {
+		m.extraFilesResult = ExtraFilesResult{} // Clear previous results
 		m.state = StateImportPreview
 		return m, nil
 	}
@@ -1398,6 +1399,7 @@ func (m ImportBrowserModel) checkForExtraFilesAddTo() (tea.Model, tea.Cmd) {
 	items, err := FindNonGitItems(m.importTarget.Path, gitRoots)
 	if err != nil || len(items) == 0 {
 		// No extra files or error finding them, skip to preview
+		m.extraFilesResult = ExtraFilesResult{} // Clear previous results
 		m.state = StateImportPreview
 		return m, nil
 	}
@@ -2577,6 +2579,7 @@ func isRunningOnMac() bool {
 // checkForExtraFiles looks for non-git files and transitions to the appropriate state.
 func (m ImportBrowserModel) checkForExtraFiles() (tea.Model, tea.Cmd) {
 	if m.importTarget == nil {
+		m.extraFilesResult = ExtraFilesResult{} // Clear previous results
 		m.state = StateImportPreview
 		return m, nil
 	}
@@ -2598,6 +2601,7 @@ func (m ImportBrowserModel) checkForExtraFiles() (tea.Model, tea.Cmd) {
 	items, err := FindNonGitItems(m.importTarget.Path, gitRoots)
 	if err != nil || len(items) == 0 {
 		// No extra files or error finding them, skip to preview
+		m.extraFilesResult = ExtraFilesResult{} // Clear previous results
 		m.state = StateImportPreview
 		return m, nil
 	}
