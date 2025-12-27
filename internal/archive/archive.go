@@ -252,8 +252,8 @@ type StashOptions struct {
 	DeleteAfter bool   // Delete source folder after archiving
 }
 
-// StashFolder archives any folder to the system archive directory.
-// Unlike ArchiveWorkspace, this works on arbitrary folders, not just workspaces.
+// StashFolder archives any file or folder to the system archive directory.
+// Unlike ArchiveWorkspace, this works on arbitrary files/folders, not just workspaces.
 func StashFolder(cfg *config.Config, sourcePath string, opts StashOptions) (*StashResult, error) {
 	// Determine archive name
 	name := opts.Name
@@ -289,7 +289,7 @@ func StashFolder(cfg *config.Config, sourcePath string, opts StashOptions) (*Sta
 
 	if opts.DeleteAfter {
 		if err := os.RemoveAll(sourcePath); err != nil {
-			return nil, fmt.Errorf("failed to delete source folder: %w", err)
+			return nil, fmt.Errorf("failed to delete source: %w", err)
 		}
 		result.Deleted = true
 	}

@@ -556,11 +556,11 @@ func (s *sourceTreeScroller) isSelected(index int) bool {
 }
 
 // getSelectedNodes returns all nodes that have been selected for batch operations.
-// This traverses the entire tree (not just visible/flat nodes) to find selected directories.
+// This traverses the entire tree (not just visible/flat nodes) to find selected items.
 func (s *sourceTreeScroller) getSelectedNodes() []*sourceNode {
 	var selected []*sourceNode
 	for _, node := range s.flatTree {
-		if node.IsSelected && node.IsDir {
+		if node.IsSelected {
 			selected = append(selected, node)
 		}
 	}
@@ -571,7 +571,7 @@ func (s *sourceTreeScroller) getSelectedNodes() []*sourceNode {
 func (s *sourceTreeScroller) getSelectedCount() int {
 	count := 0
 	for _, node := range s.flatTree {
-		if node.IsSelected && node.IsDir {
+		if node.IsSelected {
 			count++
 		}
 	}
@@ -1542,7 +1542,7 @@ func (m ImportBrowserModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 	case " ":
 		// Toggle selection for batch operations
 		node := m.scroller.selectedNode()
-		if node != nil && node.IsDir {
+		if node != nil && node != m.root {
 			node.IsSelected = !node.IsSelected
 		}
 		return m, nil
@@ -1589,30 +1589,30 @@ func (m ImportBrowserModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		return m, nil
 
 	case "s":
-		// Check if multiple folders are selected for batch stash
+		// Check if multiple items are selected for batch stash
 		selectedNodes := m.scroller.getSelectedNodes()
 		if len(selectedNodes) > 1 {
 			// Start batch stash (keep sources)
 			return m.startBatchStash(selectedNodes, false)
 		}
-		// Start single stash for selected folder (keep source)
+		// Start single stash for selected item (keep source)
 		node := m.scroller.selectedNode()
-		if node != nil && node.IsDir {
+		if node != nil && node != m.root {
 			m.startStash(node, false)
 			return m, m.stashNameInput.Focus()
 		}
 		return m, nil
 
 	case "S":
-		// Check if multiple folders are selected for batch stash
+		// Check if multiple items are selected for batch stash
 		selectedNodes := m.scroller.getSelectedNodes()
 		if len(selectedNodes) > 1 {
 			// Start batch stash (delete sources after)
 			return m.startBatchStash(selectedNodes, true)
 		}
-		// Start single stash for selected folder (delete source after)
+		// Start single stash for selected item (delete source after)
 		node := m.scroller.selectedNode()
-		if node != nil && node.IsDir {
+		if node != nil && node != m.root {
 			m.startStash(node, true)
 			return m, m.stashNameInput.Focus()
 		}
@@ -1627,9 +1627,9 @@ func (m ImportBrowserModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		return m, nil
 
 	case "d":
-		// Delete selected folder (permanent)
+		// Delete selected item (permanent)
 		node := m.scroller.selectedNode()
-		if node != nil && node.IsDir && node != m.root {
+		if node != nil && node != m.root {
 			m.deleteTarget = node
 			m.deleteIsTrash = false
 			m.state = StateDeleteConfirm
@@ -1637,9 +1637,9 @@ func (m ImportBrowserModel) handleBrowseKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd
 		return m, nil
 
 	case "t":
-		// Trash selected folder (move to system trash)
+		// Trash selected item (move to system trash)
 		node := m.scroller.selectedNode()
-		if node != nil && node.IsDir && node != m.root {
+		if node != nil && node != m.root {
 			m.deleteTarget = node
 			m.deleteIsTrash = true
 			m.state = StateTrashConfirm
@@ -2328,7 +2328,7 @@ func (m ImportBrowserModel) startAddToWorkspace(node *sourceNode) (tea.Model, te
 	return m, nil
 }
 
-// startStash initializes the stash config state for the selected folder.
+// startStash initializes the stash config state for the selected file or folder.
 func (m *ImportBrowserModel) startStash(node *sourceNode, deleteAfter bool) {
 	m.state = StateStashConfirm
 	m.stashTarget = node
@@ -2336,7 +2336,7 @@ func (m *ImportBrowserModel) startStash(node *sourceNode, deleteAfter bool) {
 	m.stashFocusIdx = 0
 	m.stashError = ""
 
-	// Pre-populate archive name from folder name
+	// Pre-populate archive name from item name
 	suggestedName := archive.SanitizeArchiveName(node.Name)
 	m.stashNameInput.SetValue(suggestedName)
 }
@@ -2422,10 +2422,9 @@ func (m ImportBrowserModel) executeStash() (tea.Model, tea.Cmd) {
 
 	// Set loading state
 	m.loading = true
+	m.loadingMessage = fmt.Sprintf("Stashing: %s...", targetName)
 	if deleteAfter {
 		m.loadingMessage = fmt.Sprintf("Stashing and deleting: %s...", targetName)
-	} else {
-		m.loadingMessage = fmt.Sprintf("Stashing: %s...", targetName)
 	}
 	m.spinnerFrame = 0
 
@@ -2510,12 +2509,18 @@ func (m ImportBrowserModel) executeDelete() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Determine item type for message
+	itemType := "folder"
+	if m.deleteTarget != nil && !m.deleteTarget.IsDir {
+		itemType = "file"
+	}
+
 	// Success - refresh tree and show message
 	m.refresh()
 	if m.deleteIsTrash {
-		m.message = fmt.Sprintf("Moved to trash: %s", targetName)
+		m.message = fmt.Sprintf("Moved %s to trash: %s", itemType, targetName)
 	} else {
-		m.message = fmt.Sprintf("Deleted: %s", targetName)
+		m.message = fmt.Sprintf("Deleted %s: %s", itemType, targetName)
 	}
 	m.messageIsError = false
 	m.state = StateBrowse
@@ -3178,11 +3183,15 @@ func (m ImportBrowserModel) renderTemplateVarsView() string {
 func (m ImportBrowserModel) renderStashConfirmView() string {
 	var sb strings.Builder
 
-	// Header
+	// Header - adapt for file vs folder
+	itemType := "Folder"
+	if m.stashTarget != nil && !m.stashTarget.IsDir {
+		itemType = "File"
+	}
 	if m.stashDeleteAfter {
-		sb.WriteString(ibHeaderStyle.Render("Stash & Delete Folder") + "\n\n")
+		sb.WriteString(ibHeaderStyle.Render(fmt.Sprintf("Stash & Delete %s", itemType)) + "\n\n")
 	} else {
-		sb.WriteString(ibHeaderStyle.Render("Stash Folder") + "\n\n")
+		sb.WriteString(ibHeaderStyle.Render(fmt.Sprintf("Stash %s", itemType)) + "\n\n")
 	}
 
 	// Source info
@@ -3606,10 +3615,10 @@ func (m ImportBrowserModel) renderBatchStashConfirmView() string {
 	var sb strings.Builder
 
 	sb.WriteString(ibHeaderStyle.Render("Batch Stash") + "\n")
-	sb.WriteString(ibHelpStyle.Render(fmt.Sprintf("Stash %d folders to archives", len(m.batchStashTargets))) + "\n\n")
+	sb.WriteString(ibHelpStyle.Render(fmt.Sprintf("Stash %d items to archives", len(m.batchStashTargets))) + "\n\n")
 
-	// List folders to stash
-	sb.WriteString("Folders to stash:\n")
+	// List items to stash
+	sb.WriteString("Items to stash:\n")
 	maxShow := 10
 	for i, node := range m.batchStashTargets {
 		if i >= maxShow {
@@ -3630,7 +3639,7 @@ func (m ImportBrowserModel) renderBatchStashConfirmView() string {
 
 	// Warning if deleting
 	if m.batchStashDeleteAfter {
-		sb.WriteString("\n" + ibErrorStyle.Render("WARNING: All source folders will be DELETED after archiving!") + "\n")
+		sb.WriteString("\n" + ibErrorStyle.Render("WARNING: All source items will be DELETED after archiving!") + "\n")
 	}
 
 	// Help
@@ -3651,7 +3660,7 @@ func (m ImportBrowserModel) renderBatchStashExecuteView() string {
 		current = total
 	}
 
-	sb.WriteString(fmt.Sprintf("Stashing folder %d of %d...\n", current, total))
+	sb.WriteString(fmt.Sprintf("Stashing item %d of %d...\n", current, total))
 
 	if m.batchStashCurrent < len(m.batchStashTargets) {
 		sb.WriteString(fmt.Sprintf("Current: %s\n", m.batchStashTargets[m.batchStashCurrent].Name))
@@ -3739,11 +3748,19 @@ func (m ImportBrowserModel) renderDeleteConfirmView() string {
 	sb.WriteString(ibErrorStyle.Render("⚠ PERMANENT DELETE") + "\n\n")
 
 	if m.deleteTarget != nil {
-		sb.WriteString(fmt.Sprintf("Folder: %s\n", ibSelectedStyle.Render(m.deleteTarget.Name)))
+		itemType := "Folder"
+		if !m.deleteTarget.IsDir {
+			itemType = "File"
+		}
+		sb.WriteString(fmt.Sprintf("%s: %s\n", itemType, ibSelectedStyle.Render(m.deleteTarget.Name)))
 		sb.WriteString(fmt.Sprintf("Path:   %s\n\n", m.deleteTarget.Path))
 	}
 
-	sb.WriteString(ibErrorStyle.Render("This will PERMANENTLY delete the folder and all its contents.") + "\n")
+	itemDesc := "the folder and all its contents"
+	if m.deleteTarget != nil && !m.deleteTarget.IsDir {
+		itemDesc = "this file"
+	}
+	sb.WriteString(ibErrorStyle.Render(fmt.Sprintf("This will PERMANENTLY delete %s.", itemDesc)) + "\n")
 	sb.WriteString(ibErrorStyle.Render("This action cannot be undone!") + "\n\n")
 
 	sb.WriteString("Are you sure you want to continue?\n\n")
@@ -3760,11 +3777,19 @@ func (m ImportBrowserModel) renderTrashConfirmView() string {
 	sb.WriteString(ibHeaderStyle.Render("Move to Trash") + "\n\n")
 
 	if m.deleteTarget != nil {
-		sb.WriteString(fmt.Sprintf("Folder: %s\n", ibSelectedStyle.Render(m.deleteTarget.Name)))
+		itemType := "Folder"
+		if !m.deleteTarget.IsDir {
+			itemType = "File"
+		}
+		sb.WriteString(fmt.Sprintf("%s: %s\n", itemType, ibSelectedStyle.Render(m.deleteTarget.Name)))
 		sb.WriteString(fmt.Sprintf("Path:   %s\n\n", m.deleteTarget.Path))
 	}
 
-	sb.WriteString("This will move the folder to your system's trash.\n")
+	itemDesc := "the folder"
+	if m.deleteTarget != nil && !m.deleteTarget.IsDir {
+		itemDesc = "this file"
+	}
+	sb.WriteString(fmt.Sprintf("This will move %s to your system's trash.\n", itemDesc))
 	sb.WriteString("You can recover it from the trash if needed.\n\n")
 
 	sb.WriteString("Move to trash?\n\n")
@@ -4103,9 +4128,11 @@ func (m *ImportBrowserModel) renderDetailsPane() string {
 	if node.IsDir {
 		sb.WriteString("\n" + ibHelpStyle.Render("i - import as workspace"))
 		sb.WriteString("\n" + ibHelpStyle.Render("a - add to workspace"))
-		sb.WriteString("\n" + ibHelpStyle.Render("s - stash (archive)"))
-		sb.WriteString("\n" + ibHelpStyle.Render("S - stash & delete"))
 	}
+	sb.WriteString("\n" + ibHelpStyle.Render("s - stash (archive)"))
+	sb.WriteString("\n" + ibHelpStyle.Render("S - stash & delete"))
+	sb.WriteString("\n" + ibHelpStyle.Render("d - delete permanently"))
+	sb.WriteString("\n" + ibHelpStyle.Render("t - move to trash"))
 
 	return sb.String()
 }

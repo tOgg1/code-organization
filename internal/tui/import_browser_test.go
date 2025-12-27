@@ -1437,8 +1437,8 @@ func TestMultiSelect(t *testing.T) {
 	}
 }
 
-// TestMultiSelectOnlyDirs tests that only directories count as selections.
-func TestMultiSelectOnlyDirs(t *testing.T) {
+// TestMultiSelectIncludesFiles tests that both files and directories can be selected.
+func TestMultiSelectIncludesFiles(t *testing.T) {
 	tmp := t.TempDir()
 
 	// Create a directory with files
@@ -1468,27 +1468,31 @@ func TestMultiSelectOnlyDirs(t *testing.T) {
 		node.IsSelected = true
 	}
 
-	// getSelectedCount should only count directories
+	// getSelectedNodes should return all selected items including files
 	selected := scroller.getSelectedNodes()
 
-	// Should only get directories (root and dir1)
-	for _, node := range selected {
-		if !node.IsDir {
-			t.Errorf("getSelectedNodes returned non-directory: %s", node.Name)
-		}
-	}
-
-	// All selected nodes should be directories
+	// Count total selected (should include both files and directories)
 	count := scroller.getSelectedCount()
-	dirCount := 0
-	for _, node := range flatTree {
+	if count != len(flatTree) {
+		t.Errorf("selected count (%d) should match total node count (%d)", count, len(flatTree))
+	}
+
+	// Verify we got both files and directories
+	hasFile := false
+	hasDir := false
+	for _, node := range selected {
 		if node.IsDir {
-			dirCount++
+			hasDir = true
+		} else {
+			hasFile = true
 		}
 	}
 
-	if count != dirCount {
-		t.Errorf("selected count (%d) should match directory count (%d)", count, dirCount)
+	if !hasFile {
+		t.Error("expected at least one file to be selectable")
+	}
+	if !hasDir {
+		t.Error("expected at least one directory to be selectable")
 	}
 }
 
