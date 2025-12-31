@@ -547,6 +547,172 @@ Files in `~/Code/_system/templates/_global/` are copied to every workspace creat
 
 ---
 
+## Partials
+
+Partials are reusable file sets that can be applied to any directory at any time. Unlike templates, partials do not create a workspace; they add or update files in an existing directory.
+
+### Partial Locations
+
+- Primary: `~/Code/_system/partials/`
+- Fallback: `~/.config/co/partials/`
+
+### Built-in Partials
+
+These ship with `co` and live under `~/Code/_system/partials/`:
+
+| Name | Description | Example |
+| --- | --- | --- |
+| `agent-setup` | Agent workflow scaffolding (AGENTS.md, docs, hooks) | `co partial apply agent-setup -v primary_stack=go` |
+| `python-tooling` | Python tooling with ruff/pytest (optional mypy) | `co partial apply python-tooling -v python_version=3.12` |
+| `eslint` | ESLint config for JS/TS with optional Prettier | `co partial apply eslint -v typescript=true -v prettier=true` |
+| `github-actions` | CI/release workflows for node/python/go/rust | `co partial apply github-actions -v language=node` |
+
+### Using Partials
+
+#### List available partials
+
+```bash
+co partial list
+co partial list --tag agent
+```
+
+#### Show partial details
+
+```bash
+co partial show agent-setup
+co partial show agent-setup --files
+```
+
+#### Apply a partial
+
+```bash
+co partial apply agent-setup
+co partial apply agent-setup ./repos/backend
+co partial apply agent-setup -v primary_stack=go
+co partial apply agent-setup --dry-run
+co partial apply agent-setup --conflict skip -y
+```
+
+### Conflict Resolution
+
+| Strategy | Behavior |
+| --- | --- |
+| prompt | Ask for each conflicting file |
+| skip | Keep existing files |
+| overwrite | Replace existing files |
+| backup | Create `.bak` file, then overwrite |
+| merge | Merge supported formats (gitignore/json/yaml) when available |
+
+Preserve patterns (in `partial.json`) are never overwritten, regardless of strategy.
+
+### Built-in Partials
+
+These partials are shipped in `~/Code/_system/partials/` and can be applied as-is:
+
+- `agent-setup` — Adds `AGENTS.md`, `.claude/settings.json`, and `agent_docs/` (optional Beads init via `use_beads`)
+- `python-tooling` — Adds `pyproject.toml`, `ruff.toml`, `.python-version`, and Python `.gitignore` entries
+- `eslint` — Adds ESLint config with optional TypeScript + Prettier integration
+- `github-actions` — Adds CI workflows with language-specific steps and optional release workflow
+
+Examples:
+
+```bash
+co partial apply agent-setup -v primary_stack=go -v use_beads=true
+co partial apply python-tooling -v python_version=3.12 -v use_mypy=true
+co partial apply eslint -v typescript=true -v prettier=true
+co partial apply github-actions -v language=go -v run_tests=true -v build_artifact=false
+```
+
+### Creating Partials
+
+Directory structure:
+
+```
+partials/
+└── my-partial/
+    ├── partial.json
+    ├── files/
+    │   └── README.md.tmpl
+    └── hooks/
+        └── post-apply.sh
+```
+
+Example `partial.json`:
+
+```json
+{
+  "schema": 1,
+  "name": "agent-setup",
+  "description": "AI agent configuration",
+  "version": "1.0.0",
+  "variables": [
+    { "name": "project_name", "type": "string", "default": "{{DIRNAME}}" },
+    { "name": "primary_stack", "type": "choice", "choices": ["go", "python", "node"], "required": true }
+  ],
+  "files": { "include": ["**/*"], "exclude": ["partial.json", "hooks/**"] },
+  "conflicts": { "strategy": "prompt", "preserve": [".beads/*.log"] },
+  "hooks": { "post_apply": "hooks/post-apply.sh" },
+  "tags": ["agent", "workflow"]
+}
+```
+
+Notes:
+1) Put all output files under `files/`. Files ending in `.tmpl` are processed with variable substitution.
+2) `hooks/` is optional. Hook paths are relative to the partial directory.
+3) `partial.json` must match the directory name.
+
+### Built-in Variables
+
+| Variable | Description |
+| --- | --- |
+| `DIRNAME` | Name of target directory |
+| `DIRPATH` | Absolute path to target directory |
+| `PARENT_DIRNAME` | Parent directory name |
+| `IS_GIT_REPO` | `true` if target is a git repo |
+| `GIT_REMOTE_URL` | Remote URL (if git repo) |
+| `GIT_BRANCH` | Current branch (if git repo) |
+
+Standard variables are also available (for example: `GIT_USER_NAME`, `GIT_USER_EMAIL`, `DATE`, `YEAR`, `TIMESTAMP`).
+
+### Lifecycle Hooks
+
+Hooks are optional scripts defined in `partial.json`:
+
+- `pre_apply`: Runs before any files are written
+- `post_apply`: Runs after all files are written
+
+Environment variables available to hooks (when enabled):
+- `CO_PARTIAL_NAME`, `CO_PARTIAL_PATH`
+- `CO_TARGET_PATH`, `CO_TARGET_DIRNAME`
+- `CO_DRY_RUN`, `CO_VERBOSE`, `CO_IS_GIT_REPO`, `CO_GIT_REMOTE_URL`, `CO_GIT_BRANCH`
+- `CO_VAR_<name>` for each resolved variable
+- `CO_FILES_CREATED`, `CO_FILES_SKIPPED`, `CO_FILES_OVERWRITTEN`, `CO_FILES_MERGED`, `CO_FILES_BACKED_UP` (post-apply only)
+
+### Template Integration
+
+Templates can reference partials via a `partials` array in `template.json`:
+
+```json
+{
+  "partials": [
+    { "name": "agent-setup", "target": ".", "variables": { "project_name": "{{PROJECT}}" } },
+    { "name": "eslint", "target": "repos/frontend", "when": "{{frontend_stack}} == 'node'" }
+  ]
+}
+```
+
+Planned application order:
+1) Workspace structure created
+2) Global files applied
+3) Template files applied
+4) `post_create` hook
+5) Repos cloned/initialized
+6) `post_clone` hook
+7) Partials applied (in order)
+8) `post_complete` hook
+
+---
+
 ## Remote Sync
 
 ### How It Works
