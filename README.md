@@ -593,6 +593,30 @@ co partial apply agent-setup --dry-run
 co partial apply agent-setup --conflict skip -y
 ```
 
+### Partial Command Overview
+
+`co partial` launches the interactive Partial Explorer TUI (browse, apply, validate).
+
+Non-interactive commands:
+
+```bash
+co partial list
+co partial show <name>
+co partial show <name> --files
+co partial apply <name> [path]
+co partial validate [name]
+```
+
+### Variables, Conflicts, Hooks, Prereqs
+
+- Variables are provided with `-v key=value` (repeatable). Required variables are prompted when missing.
+- Boolean variables should be `true` or `false`.
+- Conflict strategies: `prompt`, `skip`, `overwrite`, `backup`, `merge`.
+  - `merge` only applies to `.gitignore`-style files, JSON, and YAML.
+- Use `--dry-run` to preview.
+- Use `--no-hooks` to skip `pre_apply`/`post_apply` scripts.
+- Use `--force` to apply even when prerequisites are missing (otherwise apply fails).
+
 ### Conflict Resolution
 
 | Strategy | Behavior |

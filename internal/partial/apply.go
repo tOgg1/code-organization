@@ -122,8 +122,8 @@ func Apply(opts ApplyOptions, partialsDirs []string) (*ApplyResult, error) {
 		return result, nil
 	}
 
-	// Resolve interactive prompts when configured.
-	if conflictStrategy == string(StrategyPrompt) && !opts.Yes {
+	// Resolve interactive prompts when any file needs user input.
+	if !opts.Yes && plan.Prompts > 0 {
 		if err := resolvePromptActions(plan, resolvedVars); err != nil {
 			return result, err
 		}
@@ -180,10 +180,9 @@ func Apply(opts ApplyOptions, partialsDirs []string) (*ApplyResult, error) {
 			result.FilesMerged = append(result.FilesMerged, file.RelPath)
 
 		case ActionPrompt:
-			// Phase 3: Interactive prompts will be implemented here
-			// For now, fall back to skip with a warning
+			// Non-interactive fallback when a prompt is required.
 			result.FilesSkipped = append(result.FilesSkipped, file.RelPath)
-			result.Warnings = append(result.Warnings, fmt.Sprintf("interactive prompts not implemented, skipped: %s", file.RelPath))
+			result.Warnings = append(result.Warnings, fmt.Sprintf("prompt required but skipped (non-interactive): %s", file.RelPath))
 		}
 	}
 
