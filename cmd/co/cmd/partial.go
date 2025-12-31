@@ -139,7 +139,7 @@ var partialShowCmd = &cobra.Command{
 		}
 
 		if partialShowFiles {
-			files, err := listPartialFiles(partialPath)
+			files, err := listPartialFiles(partialPath, p)
 			if err != nil {
 				return err
 			}
@@ -210,7 +210,7 @@ Arguments:
 
 Flags:
   -v, --var key=value     Set variable (can be repeated)
-      --conflict strategy Override conflict strategy (prompt|skip|overwrite|backup)
+      --conflict strategy Override conflict strategy (prompt|skip|overwrite|backup|merge)
       --dry-run           Preview changes without applying
       --no-hooks          Skip lifecycle hooks
       --force             Apply even if prerequisites fail
@@ -450,38 +450,21 @@ func init() {
 
 	// Apply flags
 	partialApplyCmd.Flags().StringArrayVarP(&partialApplyVars, "var", "v", nil, "set variable (key=value, can be repeated)")
-	partialApplyCmd.Flags().StringVar(&partialApplyConflict, "conflict", "", "conflict strategy (prompt|skip|overwrite|backup)")
+	partialApplyCmd.Flags().StringVar(&partialApplyConflict, "conflict", "", "conflict strategy (prompt|skip|overwrite|backup|merge)")
 	partialApplyCmd.Flags().BoolVar(&partialApplyDryRun, "dry-run", false, "preview changes without applying")
 	partialApplyCmd.Flags().BoolVar(&partialApplyNoHooks, "no-hooks", false, "skip lifecycle hooks")
 	partialApplyCmd.Flags().BoolVar(&partialApplyForce, "force", false, "apply even if prerequisites fail")
 	partialApplyCmd.Flags().BoolVarP(&partialApplyYes, "yes", "y", false, "accept all prompts automatically")
 }
 
-func listPartialFiles(partialPath string) ([]string, error) {
-	filesPath := partial.GetPartialFilesPath(partialPath)
-	var files []string
-
-	err := filepath.WalkDir(filesPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		rel, err := filepath.Rel(filesPath, path)
-		if err != nil {
-			return err
-		}
-		files = append(files, filepath.ToSlash(rel))
-		return nil
-	})
+func listPartialFiles(partialPath string, p *partial.Partial) ([]string, error) {
+	infos, err := partial.ListPartialFilesWithInfo(partialPath, p.Files, p.GetTemplateExtensions())
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil
-		}
 		return nil, err
 	}
-
+	files := make([]string, 0, len(infos))
+	for _, info := range infos {
+		files = append(files, info.RelPath)
+	}
 	return files, nil
 }
