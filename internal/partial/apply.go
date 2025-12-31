@@ -7,9 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
-	"time"
 
 	"github.com/tormodhaugland/co/internal/template"
 )
@@ -33,24 +31,49 @@ func Apply(opts ApplyOptions, partialsDirs []string) (*ApplyResult, error) {
 		return nil, err
 	}
 
-	// 3. Resolve variables (user-provided + defaults + builtins)
-	resolvedVars, err := resolveVariables(p, opts.Variables, absTargetPath)
+	// 3. Validate prerequisites
+	prereqResult, err := CheckPrerequisites(p, absTargetPath)
+	if err != nil {
+		return nil, err
+	}
+	warnings := []string{}
+	if !prereqResult.Satisfied {
+		if !opts.Force {
+			return nil, &PrerequisiteFailedError{
+				PartialName:     p.Name,
+				MissingCommands: prereqResult.MissingCommands,
+				MissingFiles:    prereqResult.MissingFiles,
+			}
+		}
+		if len(prereqResult.MissingCommands) > 0 || len(prereqResult.MissingFiles) > 0 {
+			warn := "prerequisites missing, applied with --force"
+			if len(prereqResult.MissingCommands) > 0 {
+				warn += fmt.Sprintf("; commands: %s", strings.Join(prereqResult.MissingCommands, ", "))
+			}
+			if len(prereqResult.MissingFiles) > 0 {
+				warn += fmt.Sprintf("; files: %s", strings.Join(prereqResult.MissingFiles, ", "))
+			}
+			warnings = append(warnings, warn)
+		}
+	}
+
+	// 4. Resolve variables (user-provided + defaults + builtins)
+	builtins, err := GetPartialBuiltins(absTargetPath)
+	if err != nil {
+		return nil, err
+	}
+	resolvedVars, err := ResolvePartialVariables(p, opts.Variables, builtins)
 	if err != nil {
 		return nil, err
 	}
 
-	// 4. Validate all required variables are provided
-	if err := validateVariables(p, resolvedVars); err != nil {
-		return nil, err
-	}
-
-	// 5. Scan partial files
+	// 6. Scan partial files
 	files, err := ScanPartialFiles(partialPath, p.Files)
 	if err != nil {
 		return nil, fmt.Errorf("scanning partial files: %w", err)
 	}
 
-	// 6. Determine conflict strategy
+	// 7. Determine conflict strategy
 	conflictStrategy := p.GetConflictStrategy()
 	if opts.ConflictStrategy != "" {
 		if !IsValidConflictStrategy(opts.ConflictStrategy) {
@@ -67,7 +90,7 @@ func Apply(opts ApplyOptions, partialsDirs []string) (*ApplyResult, error) {
 		conflictStrategy = string(StrategySkip)
 	}
 
-	// 7. Detect conflicts
+	// 8. Detect conflicts
 	extensions := p.GetTemplateExtensions()
 	conflictConfig := ConflictConfig{
 		Strategy: conflictStrategy,
@@ -90,10 +113,10 @@ func Apply(opts ApplyOptions, partialsDirs []string) (*ApplyResult, error) {
 		FilesBackedUp:    []string{},
 		HooksRun:         []string{},
 		HooksSkipped:     []string{},
-		Warnings:         []string{},
+		Warnings:         warnings,
 	}
 
-	// 8. If DryRun, populate result with planned actions and return
+	// 9. If DryRun, populate result with planned actions and return
 	if opts.DryRun {
 		populateDryRunResult(result, plan)
 		return result, nil
@@ -106,13 +129,21 @@ func Apply(opts ApplyOptions, partialsDirs []string) (*ApplyResult, error) {
 		}
 	}
 
-	// 9. Execute pre_apply hook (if not NoHooks) - STUB for Phase 3
+	// 10. Execute pre_apply hook (if not NoHooks)
 	if !opts.NoHooks && !p.Hooks.PreApply.IsEmpty() {
-		// Phase 3: Hook execution will be implemented here
-		result.HooksSkipped = append(result.HooksSkipped, "pre_apply (not implemented)")
+		env := BuildPartialHookEnvFromApply(p, partialPath, absTargetPath, resolvedVars, opts.DryRun, false, nil)
+		hookResult, err := RunPartialHook(string(HookTypePreApply), p.Hooks.PreApply, partialPath, env, os.Stdout)
+		if err != nil {
+			return result, err
+		}
+		if hookResult != nil && !hookResult.Skipped {
+			result.HooksRun = append(result.HooksRun, "pre_apply")
+		} else {
+			result.HooksSkipped = append(result.HooksSkipped, "pre_apply")
+		}
 	}
 
-	// 10. Process each file according to its action
+	// 11. Process each file according to its action
 	for _, file := range plan.Files {
 		switch file.Action {
 		case ActionCreate:
@@ -143,10 +174,10 @@ func Apply(opts ApplyOptions, partialsDirs []string) (*ApplyResult, error) {
 			result.FilesOverwritten = append(result.FilesOverwritten, file.RelPath)
 
 		case ActionMerge:
-			// Phase 4: Merge strategy will be implemented here
-			// For now, fall back to skip with a warning
-			result.FilesSkipped = append(result.FilesSkipped, file.RelPath)
-			result.Warnings = append(result.Warnings, fmt.Sprintf("merge strategy not implemented, skipped: %s", file.RelPath))
+			if err := MergeFile(file.AbsDestPath, file.AbsSourcePath, file.AbsDestPath); err != nil {
+				return result, fmt.Errorf("merge failed for %s: %w", file.RelPath, err)
+			}
+			result.FilesMerged = append(result.FilesMerged, file.RelPath)
 
 		case ActionPrompt:
 			// Phase 3: Interactive prompts will be implemented here
@@ -156,10 +187,18 @@ func Apply(opts ApplyOptions, partialsDirs []string) (*ApplyResult, error) {
 		}
 	}
 
-	// 11. Execute post_apply hook (if not NoHooks) - STUB for Phase 3
+	// 12. Execute post_apply hook (if not NoHooks)
 	if !opts.NoHooks && !p.Hooks.PostApply.IsEmpty() {
-		// Phase 3: Hook execution will be implemented here
-		result.HooksSkipped = append(result.HooksSkipped, "post_apply (not implemented)")
+		env := BuildPartialHookEnvFromApply(p, partialPath, absTargetPath, resolvedVars, opts.DryRun, false, result)
+		hookResult, err := RunPartialHook(string(HookTypePostApply), p.Hooks.PostApply, partialPath, env, os.Stdout)
+		if err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("post_apply hook failed: %v", err))
+		}
+		if hookResult != nil && !hookResult.Skipped {
+			result.HooksRun = append(result.HooksRun, "post_apply")
+		} else {
+			result.HooksSkipped = append(result.HooksSkipped, "post_apply")
+		}
 	}
 
 	return result, nil
@@ -339,116 +378,6 @@ func isBinary(data []byte) bool {
 	return bytes.IndexByte(data, 0) != -1
 }
 
-// resolveVariables builds a complete variable map from user-provided values, defaults, and builtins.
-func resolveVariables(p *Partial, provided map[string]string, targetPath string) (map[string]string, error) {
-	resolved := make(map[string]string)
-
-	// Start with partial-specific builtins
-	builtins := getPartialBuiltins(targetPath)
-	for k, v := range builtins {
-		resolved[k] = v
-	}
-
-	// Add defaults from partial variables
-	for _, v := range p.Variables {
-		if v.Default != nil {
-			// Convert default value to string
-			defaultStr := fmt.Sprintf("%v", v.Default)
-
-			// Substitute builtins in default values
-			processed, err := template.ProcessTemplateContent(defaultStr, resolved)
-			if err != nil {
-				return nil, fmt.Errorf("processing default for %s: %w", v.Name, err)
-			}
-			resolved[v.Name] = processed
-		}
-	}
-
-	// Override with user-provided values
-	for k, v := range provided {
-		resolved[k] = v
-	}
-
-	return resolved, nil
-}
-
-// validateVariables ensures all required variables are present and values are valid.
-func validateVariables(p *Partial, resolved map[string]string) error {
-	errs := &MultiError{}
-
-	for _, v := range p.Variables {
-		value, exists := resolved[v.Name]
-
-		// Check required
-		if v.Required && (!exists || value == "") {
-			errs.Add(&MissingRequiredVarError{
-				VarName:     v.Name,
-				Description: v.Description,
-			})
-			continue
-		}
-
-		// Skip further validation if no value
-		if !exists || value == "" {
-			continue
-		}
-
-		// Validate type-specific constraints
-		switch v.Type {
-		case template.VarTypeBoolean:
-			if value != "true" && value != "false" {
-				errs.Add(&InvalidVarValueError{
-					VarName: v.Name,
-					Value:   value,
-					Reason:  "must be 'true' or 'false'",
-				})
-			}
-
-		case template.VarTypeChoice:
-			if len(v.Choices) > 0 {
-				valid := false
-				for _, choice := range v.Choices {
-					if value == choice {
-						valid = true
-						break
-					}
-				}
-				if !valid {
-					errs.Add(&InvalidVarValueError{
-						VarName: v.Name,
-						Value:   value,
-						Reason:  fmt.Sprintf("must be one of: %v", v.Choices),
-					})
-				}
-			}
-		}
-
-		// Validate against regex pattern if provided
-		if v.Validation != "" {
-			re, err := regexp.Compile(v.Validation)
-			if err != nil {
-				// This should have been caught during partial validation
-				errs.Add(&InvalidVarValueError{
-					VarName: v.Name,
-					Value:   value,
-					Reason:  fmt.Sprintf("invalid validation pattern: %v", err),
-				})
-				continue
-			}
-
-			if !re.MatchString(value) {
-				errs.Add(&InvalidVarValueError{
-					VarName:    v.Name,
-					Value:      value,
-					Validation: v.Validation,
-				})
-			}
-		}
-	}
-
-	return errs.ErrorOrNil()
-}
-
 // populateDryRunResult fills the result with what would happen without actually doing it.
 func populateDryRunResult(result *ApplyResult, plan *FilePlan) {
 	for _, file := range plan.Files {
@@ -469,53 +398,6 @@ func populateDryRunResult(result *ApplyResult, plan *FilePlan) {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("would prompt for: %s", file.RelPath))
 		}
 	}
-}
-
-// getPartialBuiltins returns built-in variables available for partial templates.
-// These are partial-specific and don't require workspace context.
-func getPartialBuiltins(targetPath string) map[string]string {
-	now := time.Now()
-
-	vars := map[string]string{
-		// Time/date builtins
-		"DATE":      now.Format("2006-01-02"),
-		"DATETIME":  now.Format(time.RFC3339),
-		"YEAR":      now.Format("2006"),
-		"TIMESTAMP": fmt.Sprintf("%d", now.Unix()),
-
-		// Target directory info
-		"DIRNAME":        filepath.Base(targetPath),
-		"DIRPATH":        targetPath,
-		"PARENT_DIRNAME": filepath.Base(filepath.Dir(targetPath)),
-	}
-
-	// Get home directory
-	if home, err := os.UserHomeDir(); err == nil {
-		vars["HOME"] = home
-	}
-
-	// Get git user info
-	if name := getGitConfig("user.name"); name != "" {
-		vars["GIT_USER_NAME"] = name
-	}
-	if email := getGitConfig("user.email"); email != "" {
-		vars["GIT_USER_EMAIL"] = email
-	}
-
-	// Check if target is a git repo
-	if isGitRepo(targetPath) {
-		vars["IS_GIT_REPO"] = "true"
-		if branch := getGitBranch(targetPath); branch != "" {
-			vars["GIT_BRANCH"] = branch
-		}
-		if remoteURL := getGitRemoteURL(targetPath); remoteURL != "" {
-			vars["GIT_REMOTE_URL"] = remoteURL
-		}
-	} else {
-		vars["IS_GIT_REPO"] = "false"
-	}
-
-	return vars
 }
 
 // getGitConfig retrieves a git config value.

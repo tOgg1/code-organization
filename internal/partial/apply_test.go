@@ -502,7 +502,10 @@ func TestApply_YesFlagDefaultsToSkip(t *testing.T) {
 func TestGetPartialBuiltins(t *testing.T) {
 	dir := t.TempDir()
 
-	builtins := getPartialBuiltins(dir)
+	builtins, err := GetPartialBuiltins(dir)
+	if err != nil {
+		t.Fatalf("GetPartialBuiltins failed: %v", err)
+	}
 
 	// Check required builtins exist
 	required := []string{"DATE", "YEAR", "TIMESTAMP", "DIRNAME", "DIRPATH", "PARENT_DIRNAME", "IS_GIT_REPO"}
