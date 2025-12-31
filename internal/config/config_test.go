@@ -63,6 +63,51 @@ func TestConfigCacheDir(t *testing.T) {
 	}
 }
 
+func TestConfigPartialsDir(t *testing.T) {
+	cfg := &Config{CodeRoot: "/home/user/Code"}
+	expected := "/home/user/Code/_system/partials"
+	if cfg.PartialsDir() != expected {
+		t.Errorf("PartialsDir() = %q, want %q", cfg.PartialsDir(), expected)
+	}
+}
+
+func TestConfigFallbackPartialsDirWithXDG(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-config")
+	cfg := &Config{}
+	expected := filepath.Join("/tmp/xdg-config", "co", "partials")
+	if cfg.FallbackPartialsDir() != expected {
+		t.Errorf("FallbackPartialsDir() = %q, want %q", cfg.FallbackPartialsDir(), expected)
+	}
+}
+
+func TestConfigFallbackPartialsDirWithoutXDG(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	home, _ := os.UserHomeDir()
+	cfg := &Config{}
+	expected := filepath.Join(home, ".config", "co", "partials")
+	if cfg.FallbackPartialsDir() != expected {
+		t.Errorf("FallbackPartialsDir() = %q, want %q", cfg.FallbackPartialsDir(), expected)
+	}
+}
+
+func TestConfigAllPartialsDirs(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-config")
+	cfg := &Config{CodeRoot: "/home/user/Code"}
+	expected := []string{
+		"/home/user/Code/_system/partials",
+		filepath.Join("/tmp/xdg-config", "co", "partials"),
+	}
+	got := cfg.AllPartialsDirs()
+	if len(got) != len(expected) {
+		t.Fatalf("AllPartialsDirs() length = %d, want %d", len(got), len(expected))
+	}
+	for i := range expected {
+		if got[i] != expected[i] {
+			t.Errorf("AllPartialsDirs()[%d] = %q, want %q", i, got[i], expected[i])
+		}
+	}
+}
+
 func TestConfigWorkspacePath(t *testing.T) {
 	cfg := &Config{CodeRoot: "/home/user/Code"}
 	path := cfg.WorkspacePath("owner--project")

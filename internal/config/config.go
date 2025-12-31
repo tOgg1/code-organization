@@ -183,6 +183,11 @@ func (c *Config) TemplatesDir() string {
 	return filepath.Join(c.SystemDir(), "templates")
 }
 
+// PartialsDir returns the path to the primary partials directory.
+func (c *Config) PartialsDir() string {
+	return filepath.Join(c.SystemDir(), "partials")
+}
+
 // FallbackTemplatesDir returns the XDG config templates directory for backwards compatibility.
 func (c *Config) FallbackTemplatesDir() string {
 	xdgConfig := os.Getenv("XDG_CONFIG_HOME")
@@ -193,10 +198,26 @@ func (c *Config) FallbackTemplatesDir() string {
 	return filepath.Join(xdgConfig, "co", "templates")
 }
 
+// FallbackPartialsDir returns the XDG config partials directory for backwards compatibility.
+func (c *Config) FallbackPartialsDir() string {
+	xdgConfig := os.Getenv("XDG_CONFIG_HOME")
+	if xdgConfig == "" {
+		home, _ := os.UserHomeDir()
+		xdgConfig = filepath.Join(home, ".config")
+	}
+	return filepath.Join(xdgConfig, "co", "partials")
+}
+
 // AllTemplatesDirs returns all template directories to search, in priority order.
 // Primary (_system/templates) is checked first, then fallback (XDG config).
 func (c *Config) AllTemplatesDirs() []string {
 	return []string{c.TemplatesDir(), c.FallbackTemplatesDir()}
+}
+
+// AllPartialsDirs returns all partials directories to search, in priority order.
+// Primary (_system/partials) is checked first, then fallback (XDG config).
+func (c *Config) AllPartialsDirs() []string {
+	return []string{c.PartialsDir(), c.FallbackPartialsDir()}
 }
 
 func (c *Config) WorkspacePath(slug string) string {
