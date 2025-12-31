@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/tormodhaugland/co/internal/partial"
+	"github.com/tormodhaugland/co/internal/template"
 )
 
 var (
@@ -36,6 +38,17 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: ~/.config/co/config.json)")
 	rootCmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "output in JSON format")
 	rootCmd.PersistentFlags().BoolVar(&jsonlOut, "jsonl", false, "output in JSON Lines format")
+
+	template.RegisterPartialApplier(func(opts template.PartialApplyOptions, partialsDirs []string) error {
+		_, err := partial.Apply(partial.ApplyOptions{
+			PartialName: opts.PartialName,
+			TargetPath:  opts.TargetPath,
+			Variables:   opts.Variables,
+			DryRun:      opts.DryRun,
+			NoHooks:     opts.NoHooks,
+		}, partialsDirs)
+		return err
+	})
 }
 
 func exitWithError(msg string, code int) {

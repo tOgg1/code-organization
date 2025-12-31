@@ -17,17 +17,18 @@ const (
 
 // Template represents a workspace template definition.
 type Template struct {
-	Schema          int              `json:"schema"`
-	Name            string           `json:"name"`
-	Description     string           `json:"description"`
-	Version         string           `json:"version,omitempty"`
-	Variables       []TemplateVar    `json:"variables,omitempty"`
-	Repos           []TemplateRepo   `json:"repos,omitempty"`
-	Files           TemplateFiles    `json:"files,omitempty"`
-	Hooks           TemplateHooks    `json:"hooks,omitempty"`
-	Tags            []string         `json:"tags,omitempty"`
+	Schema          int                `json:"schema"`
+	Name            string             `json:"name"`
+	Description     string             `json:"description"`
+	Version         string             `json:"version,omitempty"`
+	Variables       []TemplateVar      `json:"variables,omitempty"`
+	Repos           []TemplateRepo     `json:"repos,omitempty"`
+	Files           TemplateFiles      `json:"files,omitempty"`
+	Hooks           TemplateHooks      `json:"hooks,omitempty"`
+	Partials        []PartialRef       `json:"partials,omitempty"`
+	Tags            []string           `json:"tags,omitempty"`
 	State           model.ProjectState `json:"state,omitempty"`
-	SkipGlobalFiles interface{}      `json:"skip_global_files,omitempty"` // bool or []string
+	SkipGlobalFiles interface{}        `json:"skip_global_files,omitempty"` // bool or []string
 }
 
 // TemplateVar defines a variable that can be customized when using the template.
@@ -47,6 +48,14 @@ type TemplateRepo struct {
 	CloneURL      string `json:"clone_url,omitempty"`
 	Init          bool   `json:"init,omitempty"`
 	DefaultBranch string `json:"default_branch,omitempty"`
+}
+
+// PartialRef defines a partial to apply during template creation.
+type PartialRef struct {
+	Name      string            `json:"name"`
+	Target    string            `json:"target,omitempty"`
+	Variables map[string]string `json:"variables,omitempty"`
+	When      string            `json:"when,omitempty"`
 }
 
 // TemplateFiles configures file processing behavior.
@@ -101,19 +110,38 @@ type CreateOptions struct {
 	Verbose      bool
 }
 
+// PartialApplyOptions holds the partial apply parameters for template integration.
+type PartialApplyOptions struct {
+	PartialName string
+	TargetPath  string
+	Variables   map[string]string
+	DryRun      bool
+	NoHooks     bool
+}
+
+// PartialApplier applies a partial during template creation.
+type PartialApplier func(opts PartialApplyOptions, partialsDirs []string) error
+
+var partialApplier PartialApplier
+
+// RegisterPartialApplier registers a partial applier for template integration.
+func RegisterPartialApplier(applier PartialApplier) {
+	partialApplier = applier
+}
+
 // CreateResult holds the result of template-based workspace creation.
 type CreateResult struct {
-	WorkspacePath   string   `json:"workspace_path"`
-	WorkspaceSlug   string   `json:"workspace_slug"`
-	TemplateUsed    string   `json:"template_used,omitempty"`
-	FilesCreated    int      `json:"files_created"`
-	GlobalFiles     int      `json:"global_files"`
-	TemplateFiles   int      `json:"template_files"`
-	ReposCreated    int      `json:"repos_created"`
-	ReposCloned     int      `json:"repos_cloned"`
-	HooksRun        []string `json:"hooks_run,omitempty"`
-	HooksSkipped    []string `json:"hooks_skipped,omitempty"`
-	Warnings        []string `json:"warnings,omitempty"`
+	WorkspacePath string   `json:"workspace_path"`
+	WorkspaceSlug string   `json:"workspace_slug"`
+	TemplateUsed  string   `json:"template_used,omitempty"`
+	FilesCreated  int      `json:"files_created"`
+	GlobalFiles   int      `json:"global_files"`
+	TemplateFiles int      `json:"template_files"`
+	ReposCreated  int      `json:"repos_created"`
+	ReposCloned   int      `json:"repos_cloned"`
+	HooksRun      []string `json:"hooks_run,omitempty"`
+	HooksSkipped  []string `json:"hooks_skipped,omitempty"`
+	Warnings      []string `json:"warnings,omitempty"`
 }
 
 // TemplateInfo provides summary information about a template for listing.

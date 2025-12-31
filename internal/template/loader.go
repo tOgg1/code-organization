@@ -394,6 +394,32 @@ func ValidateTemplate(tmpl *Template) error {
 		}
 	}
 
+	// Validate partial refs
+	for i, p := range tmpl.Partials {
+		if strings.TrimSpace(p.Name) == "" {
+			errs.Add(&ValidationError{
+				Field:  fmt.Sprintf("partials[%d].name", i),
+				Reason: "is required",
+			})
+		}
+
+		if p.Target == "" {
+			tmpl.Partials[i].Target = "."
+		} else if filepath.IsAbs(p.Target) {
+			errs.Add(&ValidationError{
+				Field:  fmt.Sprintf("partials[%d].target", i),
+				Reason: "must be a relative path",
+			})
+		}
+
+		if p.When != "" && !whenHasOperator(p.When) {
+			errs.Add(&ValidationError{
+				Field:  fmt.Sprintf("partials[%d].when", i),
+				Reason: "must include == or !=",
+			})
+		}
+	}
+
 	// Validate hook timeouts if specified
 	validateHookTimeout := func(name string, spec HookSpec) {
 		if spec.Timeout != "" {
@@ -413,6 +439,10 @@ func ValidateTemplate(tmpl *Template) error {
 	validateHookTimeout("post_migrate", tmpl.Hooks.PostMigrate)
 
 	return errs.ErrorOrNil()
+}
+
+func whenHasOperator(when string) bool {
+	return strings.Contains(when, "==") || strings.Contains(when, "!=")
 }
 
 // ValidateTemplateDir validates a template including its files and hooks.

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/tormodhaugland/co/internal/config"
 	"github.com/tormodhaugland/co/internal/fs"
@@ -145,6 +146,49 @@ func CreateWorkspace(cfg *config.Config, owner, project string, opts CreateOptio
 		}
 	}
 
+	// Apply partials after repos and post_clone hook
+	if len(tmpl.Partials) > 0 {
+		if partialApplier == nil {
+			return result, fmt.Errorf("template references partials but no partial applier is registered")
+		}
+
+		partialsDirs := cfg.AllPartialsDirs()
+		for _, ref := range tmpl.Partials {
+			shouldApply, err := evaluatePartialWhen(ref.When, vars)
+			if err != nil {
+				return result, fmt.Errorf("evaluating when for partial %s: %w", ref.Name, err)
+			}
+			if !shouldApply {
+				continue
+			}
+
+			target := ref.Target
+			if target == "" {
+				target = "."
+			}
+
+			partialVars, err := resolvePartialRefVariables(ref.Variables, vars)
+			if err != nil {
+				return result, fmt.Errorf("resolving variables for partial %s: %w", ref.Name, err)
+			}
+
+			if output != nil {
+				fmt.Fprintf(output, "Applying partial %s to %s\n", ref.Name, target)
+			}
+
+			err = partialApplier(PartialApplyOptions{
+				PartialName: ref.Name,
+				TargetPath:  filepath.Join(workspacePath, target),
+				Variables:   partialVars,
+				DryRun:      opts.DryRun,
+				NoHooks:     opts.NoHooks,
+			}, partialsDirs)
+			if err != nil {
+				return result, fmt.Errorf("applying partial %s: %w", ref.Name, err)
+			}
+		}
+	}
+
 	// Create project.json
 	proj := model.NewProject(owner, project)
 	proj.Template = opts.TemplateName
@@ -181,6 +225,59 @@ func CreateWorkspace(cfg *config.Config, owner, project string, opts CreateOptio
 	CleanupHookOutputFile(workspacePath)
 
 	return result, nil
+}
+
+func evaluatePartialWhen(condition string, vars map[string]string) (bool, error) {
+	if strings.TrimSpace(condition) == "" {
+		return true, nil
+	}
+
+	expanded, err := ProcessTemplateContent(condition, vars)
+	if err != nil {
+		return false, err
+	}
+
+	expanded = strings.TrimSpace(expanded)
+	operator := ""
+	if strings.Contains(expanded, "!=") {
+		operator = "!="
+	} else if strings.Contains(expanded, "==") {
+		operator = "=="
+	} else {
+		return false, fmt.Errorf("unsupported condition: %s", expanded)
+	}
+
+	parts := strings.SplitN(expanded, operator, 2)
+	if len(parts) != 2 {
+		return false, fmt.Errorf("invalid condition: %s", expanded)
+	}
+
+	left := strings.TrimSpace(parts[0])
+	right := strings.TrimSpace(parts[1])
+	left = strings.Trim(left, "\"'")
+	right = strings.Trim(right, "\"'")
+
+	if operator == "==" {
+		return left == right, nil
+	}
+	return left != right, nil
+}
+
+func resolvePartialRefVariables(vars map[string]string, templateVars map[string]string) (map[string]string, error) {
+	if vars == nil {
+		return map[string]string{}, nil
+	}
+
+	resolved := make(map[string]string, len(vars))
+	for key, value := range vars {
+		expanded, err := ProcessTemplateContent(value, templateVars)
+		if err != nil {
+			return nil, err
+		}
+		resolved[key] = expanded
+	}
+
+	return resolved, nil
 }
 
 // ApplyTemplateToExisting applies template files to an existing workspace.
