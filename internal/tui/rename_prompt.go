@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -324,6 +325,9 @@ func RunRenamePrompt(cfg *config.Config) (RenamePromptResult, error) {
 
 	// Sort workspaces by slug
 	workspaces := idx.Records
+	sort.Slice(workspaces, func(i, j int) bool {
+		return workspaces[i].Slug < workspaces[j].Slug
+	})
 
 	m := newRenameModel(cfg, workspaces)
 	p := tea.NewProgram(m, tea.WithAltScreen())

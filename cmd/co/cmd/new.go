@@ -12,6 +12,7 @@ import (
 	"github.com/tormodhaugland/co/internal/config"
 	"github.com/tormodhaugland/co/internal/fs"
 	"github.com/tormodhaugland/co/internal/git"
+	"github.com/tormodhaugland/co/internal/index"
 	"github.com/tormodhaugland/co/internal/model"
 	"github.com/tormodhaugland/co/internal/template"
 	"github.com/tormodhaugland/co/internal/tui"
@@ -129,6 +130,12 @@ Template Support:
 		}
 
 		fmt.Printf("Created workspace: %s\n", workspacePath)
+
+		// Rebuild the index
+		if err := rebuildIndex(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to rebuild index: %v\n", err)
+		}
+
 		return nil
 	},
 }
@@ -195,6 +202,11 @@ func createWithTemplateAndVars(cfg *config.Config, owner, project, templateName 
 		for _, w := range result.Warnings {
 			fmt.Printf("    - %s\n", w)
 		}
+	}
+
+	// Rebuild the index
+	if err := rebuildIndex(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to rebuild index: %v\n", err)
 	}
 
 	return nil
@@ -305,6 +317,11 @@ func createWithTemplate(cfg *config.Config, owner, project string, extraRepoURLs
 		}
 	}
 
+	// Rebuild the index
+	if err := rebuildIndex(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to rebuild index: %v\n", err)
+	}
+
 	return nil
 }
 
@@ -378,6 +395,16 @@ func deriveRepoName(url string) string {
 	}
 
 	return "repo"
+}
+
+// rebuildIndex rebuilds the workspace index after creating a new workspace.
+func rebuildIndex(cfg *config.Config) error {
+	builder := index.NewBuilder(cfg)
+	idx, err := builder.Build()
+	if err != nil {
+		return err
+	}
+	return builder.Save(idx)
 }
 
 func init() {
