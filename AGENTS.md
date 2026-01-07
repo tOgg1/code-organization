@@ -98,9 +98,7 @@ Product bus:
 - Create/ensure product: `mcp-agent-mail products ensure MyProduct --name "My Product"`.
 - Link repo: `mcp-agent-mail products link MyProduct .`.
 - Inspect: `mcp-agent-mail products status MyProduct`.
-- Search: `mcp-agent-mail products search MyProduct "bd-123 OR \"release plan\"" --limit 50`.
 - Product inbox: `mcp-agent-mail products inbox MyProduct YourAgent --limit 50 --urgent-only --include-bodies`.
-- Summaries: `mcp-agent-mail products summarize-thread MyProduct "bd-123" --per-thread-limit 100 --no-llm`.
 
 Server-side tools (for orchestrators) include:
 
@@ -117,210 +115,30 @@ Common pitfalls:
 
 ---
 
-## Issue Tracking with bd (beads)
+## Issue Tracking with tk
 
-All issue tracking goes through **bd**. No other TODO systems.
-
-Key invariants:
-
-- `.beads/` is authoritative state and **must always be committed** with code changes.
-- Do not edit `.beads/*.jsonl` directly; only via `bd`.
-
-### Basics
-
-Check ready work:
-
-```bash
-bd ready --json
-```
-
-Create issues:
-
-```bash
-bd create "Issue title" -t bug|feature|task -p 0-4 --json
-bd create "Issue title" -p 1 --deps discovered-from:bd-123 --json
-```
-
-Update:
-
-```bash
-bd update bd-42 --status in_progress --json
-bd update bd-42 --priority 1 --json
-```
-
-Complete:
-
-```bash
-bd close bd-42 --reason "Completed" --json
-```
-
-Types:
-
-- `bug`, `feature`, `task`, `epic`, `chore`
-
-Priorities:
-
-- `0` critical (security, data loss, broken builds)
-- `1` high
-- `2` medium (default)
-- `3` low
-- `4` backlog
-
-Agent workflow:
-
-1. `bd ready` to find unblocked work.
-2. Claim: `bd update <id> --status in_progress`.
-3. Implement + test.
-4. If you discover new work, create a new bead with `discovered-from:<parent-id>`.
-5. Close when done.
-6. Commit `.beads/` in the same commit as code changes.
-
-Auto-sync:
-
-- bd exports to `.beads/issues.jsonl` after changes (debounced).
-- It imports from JSONL when newer (e.g. after `git pull`).
-
-Never:
-
-- Use markdown TODO lists.
-- Use other trackers.
-- Duplicate tracking.
-
----
-
-
----
-
-### Using bv as an AI Sidecar
-
-`bv` is a terminal UI + analysis layer for `.beads/beads.jsonl`. It precomputes graph metrics so you don’t have to.
-
-Useful robot commands:
-
-- `bv --robot-help` – overview
-- `bv --robot-insights` – graph metrics (PageRank, betweenness, HITS, critical path, cycles)
-- `bv --robot-plan` – parallelizable execution plan with unblocks info
-- `bv --robot-priority` – priority suggestions with reasoning
-- `bv --robot-recipes` – list recipes; apply via `bv --recipe <name>`
-- `bv --robot-diff --diff-since <commit|date>` – JSON diff of issue changes
-
-Use `bv` instead of rolling your own dependency graph logic.
-
----
-
-### Morph Warp Grep — AI-Powered Code Search
-
-Use `warpgrep_codebase_search` for “how does X work?” discovery across the codebase.
-
-When to use:
-
-- You don’t know where something lives.
-- You want data flow across multiple files (API → service → schema → types).
-- You want all touchpoints of a cross-cutting concern (e.g., moderation, billing).
-
-Example:
-
-```
-warpgrep_codebase_search(
-  repoPath: "/data/projects/communitai",
-  query: "How is the L3 Guardian appeals system implemented?"
-)
-```
-
-Warp Grep:
-
-- Expands a natural-language query to multiple search patterns.
-- Runs targeted greps, reads code, follows imports, then returns concise snippets with line numbers.
-- Reduces token usage by returning only relevant slices, not entire files.
-
-When **not** to use Warp Grep:
-
-- You already know the function/identifier name; use `rg`.
-- You know the exact file; just open it.
-- You only need a yes/no existence check.
-
-Comparison:
-
-| Scenario | Tool |
-| ---------------------------------- | ---------- |
-| “How is auth session validated?” | warp_grep | | “Where is `handleSubmit` defined?” | `rg` |
-| “Replace `var` with `let`” | `ast-grep` |
-
----
-
-### cass — Cross-Agent Search
-
-`cass` indexes prior agent conversations (Claude Code, Codex, Cursor, Gemini, ChatGPT, etc.) so we can reuse solved problems.
-
-Rules:
-
-- Never run bare `cass` (TUI). Always use `--robot` or `--json`.
-
-Examples:
-
-```bash
-cass health
-cass search "authentication error" --robot --limit 5
-cass view /path/to/session.jsonl -n 42 --json
-cass expand /path/to/session.jsonl -n 42 -C 3 --json
-cass capabilities --json
-cass robot-docs guide
-```
-
-Tips:
-
-- Use `--fields minimal` for lean output.
-- Filter by agent with `--agent`.
-- Use `--days N` to limit to recent history.
-
-stdout is data-only, stderr is diagnostics; exit code 0 means success.
-
-Treat cass as a way to avoid re-solving problems other agents already handled.
-
+This project uses `tk` for issue tracking.
+Tickets live in `.tickets/` and should be committed with related code changes.
+Run `tk help` when you need more commands.
 
 ## This project
 
 This project is the OSS tool "code organization". Read README.md for more information.
 
-<!-- bv-agent-instructions-v1 -->
 
 ---
 
-## Beads Workflow Integration
 
-This project uses [beads_viewer](https://github.com/Dicklesworthstone/beads_viewer) for issue tracking. Issues are stored in `.beads/` and tracked in git.
-
-### Essential Commands
-
-```bash
-# View issues (launches TUI - avoid in automated sessions)
-bv
-
-# CLI commands for agents (use these instead)
-bd ready              # Show issues ready to work (no blockers)
-bd list --status=open # All open issues
-bd show <id>          # Full issue details with dependencies
-bd create --title="..." --type=task --priority=2
-bd update <id> --status=in_progress
-bd close <id> --reason="Completed"
-bd close <id1> <id2>  # Close multiple issues at once
-bd sync               # Commit and push changes
-```
+This project uses `tk` for issue tracking. Run `tk help` when you need it.
 
 ### Workflow Pattern
 
-1. **Start**: Run `bd ready` to find actionable work
-2. **Claim**: Use `bd update <id> --status=in_progress`
 3. **Work**: Implement the task
-4. **Complete**: Use `bd close <id>`
-5. **Sync**: Always run `bd sync` at session end
 
 ### Key Concepts
 
-- **Dependencies**: Issues can block other issues. `bd ready` shows only unblocked work.
 - **Priority**: P0=critical, P1=high, P2=medium, P3=low, P4=backlog (use numbers, not words)
 - **Types**: task, bug, feature, epic, question, docs
-- **Blocking**: `bd dep add <issue> <depends-on>` to add dependencies
 
 ### Session Protocol
 
@@ -329,18 +147,11 @@ bd sync               # Commit and push changes
 ```bash
 git status              # Check what changed
 git add <files>         # Stage code changes
-bd sync                 # Commit beads changes
 git commit -m "..."     # Commit code
-bd sync                 # Commit any new beads changes
 git push                # Push to remote
 ```
 
 ### Best Practices
 
-- Check `bd ready` at session start to find available work
 - Update status as you work (in_progress → closed)
-- Create new issues with `bd create` when you discover tasks
 - Use descriptive titles and set appropriate priority/type
-- Always `bd sync` before ending session
-
-<!-- end-bv-agent-instructions -->
