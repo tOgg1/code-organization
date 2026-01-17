@@ -335,6 +335,14 @@ co sync acme--dashboard prod --dry-run      # Preview only
 co sync acme--dashboard prod --no-git       # Exclude .git directories
 ```
 
+#### `co sync-batch <server>`
+
+Interactively select multiple workspaces to sync to a remote server.
+
+```bash
+co sync-batch prod
+```
+
 ### Exit Codes
 
 | Code | Meaning |
