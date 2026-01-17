@@ -150,6 +150,12 @@ var BuiltinExcludes = []string{
 }
 ```
 
+### 3.3 Hard Excludes
+
+`co sync` always excludes `repos/` from file transfer. Repositories are cloned
+on the target machine instead of being copied file-by-file. This exclusion is
+not affected by config or interactive selections.
+
 **Note:** The full list is defined in `internal/fs/excludes.go` and can be inspected via `co sync --list-excludes`.
 
 ### 3.3 Global Config (`config.json`)

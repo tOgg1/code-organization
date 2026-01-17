@@ -29,7 +29,8 @@ var (
 var syncCmd = &cobra.Command{
 	Use:   "sync <workspace-slug> <server>",
 	Short: "Sync workspace to a remote server",
-	Long: `Syncs a workspace to a remote server via rsync or tar.
+	Long: `Syncs a workspace to a remote server by copying metadata and
+non-repo files, then cloning repos on the target machine.
 By default, does nothing if the remote path already exists (exit 10).
 Use --force to sync regardless.
 
@@ -37,17 +38,23 @@ Default excludes include common build artifacts, dependency caches,
 and sensitive files (node_modules/, target/, .env, etc.).
 Use --exclude to add patterns, --include-env to sync .env files.
 
+Repos are always excluded from file transfer and cloned on the target.
 Use --interactive (-i) to launch a TUI for selecting files/directories
 to exclude before syncing. Navigate with j/k, toggle with space.`,
 	Args: cobra.RangeArgs(0, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Handle --list-excludes
 		if syncListExcludes {
-			excludeList := fs.BuildExcludeList(fs.ExcludeOptions{
-				NoGit:      syncNoGit,
-				IncludeEnv: syncIncludeEnv,
-				Additional: syncExcludes,
-			})
+			opts := sync.DefaultOptions()
+			opts.NoGit = syncNoGit
+			opts.IncludeEnv = syncIncludeEnv
+			opts.ExcludePatterns = syncExcludes
+			opts.ExcludeFromFile = syncExcludeFrom
+
+			excludeList, err := opts.BuildExcludes()
+			if err != nil {
+				return err
+			}
 			if jsonOut {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
@@ -113,15 +120,17 @@ to exclude before syncing. Navigate with j/k, toggle with space.`,
 
 		// Load workspace config from project.json if it exists
 		projectPath := filepath.Join(localPath, "project.json")
-		if project, err := model.LoadProject(projectPath); err == nil {
-			// Apply workspace sync config
-			if project.Sync != nil && project.Sync.Excludes != nil {
-				opts.WorkspaceAdd = project.Sync.Excludes.Add
-				opts.WorkspaceRemove = project.Sync.Excludes.Remove
-			}
-			if project.Sync != nil && project.Sync.IncludeEnv {
-				opts.IncludeEnv = true
-			}
+		project, err := model.LoadProject(projectPath)
+		if err != nil {
+			return fmt.Errorf("project.json required for sync: %w", err)
+		}
+		opts.Project = project
+		if project.Sync != nil && project.Sync.Excludes != nil {
+			opts.WorkspaceAdd = project.Sync.Excludes.Add
+			opts.WorkspaceRemove = project.Sync.Excludes.Remove
+		}
+		if project.Sync != nil && project.Sync.IncludeEnv {
+			opts.IncludeEnv = true
 		}
 
 		// Interactive mode: launch TUI picker to select excludes

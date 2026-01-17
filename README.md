@@ -13,7 +13,7 @@
 - **Unified workspace structure** — Every project lives under `~/Code` with a consistent `<owner>--<project>` naming convention
 - **Machine-readable metadata** — `project.json` in every workspace; global `index.jsonl` for fast querying
 - **Interactive TUI** — Browse, search, and manage projects with a polished terminal interface
-- **Remote sync** — One-command rsync to named servers with safety checks
+- **Remote sync** — One-command sync that copies metadata and clones repos on the target
 - **Safe archiving** — Git-bundle based archives that preserve full history
 - **Semantic code search** — Find code by meaning using AST-aware chunking and vector embeddings (via Ollama)
 
@@ -325,7 +325,8 @@ co archive old--project --reason "EOL"     # Add reason to metadata
 
 #### `co sync <workspace-slug> <server>`
 
-Sync a workspace to a remote server.
+Sync a workspace to a remote server by copying metadata and non-repo files,
+then cloning repos on the target machine.
 
 ```bash
 co sync acme--dashboard prod                # Safe: fails if remote exists
@@ -743,12 +744,15 @@ Planned application order:
 
 1. Check if remote path exists
 2. If exists: **stop** (exit code 10) unless `--force`
-3. If not exists: create directory and sync
+3. If not exists: create directory
+4. Sync metadata and non-repo files
+5. Clone repos on the target machine from `project.json` (or local git remotes if missing)
 
 ### Transport
 
-- **Preferred:** rsync over SSH (`rsync -az --partial --progress`)
+- **Metadata sync:** rsync over SSH (`rsync -az --partial --progress`)
 - **Fallback:** tar streaming over SSH
+- **Repos:** cloned with `git clone` on the target machine
 
 ### Default Excludes
 
@@ -769,6 +773,7 @@ Common build artifacts, dependency caches, and sensitive files are excluded by d
 | **Terraform** | `.terraform/`, `*.tfstate`, `*.tfstate.*` |
 
 Use `co sync --list-excludes` to see the full list.
+`repos/` is always excluded from file transfer and cloned separately on the target.
 
 ### Options
 

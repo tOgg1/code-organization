@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tormodhaugland/co/internal/fs"
@@ -137,5 +138,78 @@ func TestExcludeListToTarArgs(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ToTarArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestBuildExcludesForcePatterns(t *testing.T) {
+	opts := &Options{
+		SkipDefaultExcludes:  true,
+		ExcludePatterns:      []string{"custom/"},
+		ForceExcludePatterns: []string{"repos/"},
+	}
+
+	excludeList, err := opts.BuildExcludes()
+	if err != nil {
+		t.Fatalf("BuildExcludes returned error: %v", err)
+	}
+
+	hasRepos := false
+	hasCustom := false
+	for _, p := range excludeList.Patterns {
+		if p == "repos/" {
+			hasRepos = true
+		}
+		if p == "custom/" {
+			hasCustom = true
+		}
+	}
+
+	if !hasRepos {
+		t.Error("Expected repos/ in excludes when forced")
+	}
+	if !hasCustom {
+		t.Error("Expected custom/ in excludes")
+	}
+}
+
+func TestBuildCloneScript(t *testing.T) {
+	plans := []repoClonePlan{
+		{
+			Name:   "frontend",
+			Path:   "repos/frontend",
+			Remote: "git@github.com:acme/frontend.git",
+		},
+	}
+
+	script, err := buildCloneScript("/remote/root", plans)
+	if err != nil {
+		t.Fatalf("buildCloneScript returned error: %v", err)
+	}
+
+	if !strings.Contains(script, "git clone") {
+		t.Fatalf("expected git clone in script, got: %s", script)
+	}
+	if !strings.Contains(script, "repos/frontend") {
+		t.Fatalf("expected repo path in script, got: %s", script)
+	}
+}
+
+func TestParseCloneOutput(t *testing.T) {
+	output := strings.Join([]string{
+		"CLONED|frontend|/remote/root/repos/frontend|git@github.com:acme/frontend.git",
+		"SKIP|backend|/remote/root/repos/backend|exists",
+		"",
+	}, "\n")
+
+	results := parseCloneOutput(output)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	if results[0].Status != "cloned" || results[0].Name != "frontend" {
+		t.Fatalf("unexpected first result: %+v", results[0])
+	}
+	if results[1].Status != "skipped" || results[1].Name != "backend" {
+		t.Fatalf("unexpected second result: %+v", results[1])
 	}
 }
