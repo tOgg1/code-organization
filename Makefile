@@ -29,10 +29,10 @@ build:
 	$(GOBUILD) $(BUILD_FLAGS) -o $(BUILD_DIR)/$(BINARY) $(MAIN)
 	@echo "Built: $(BUILD_DIR)/$(BINARY)"
 
-## install: Install to $GOPATH/bin
+## install: Install to user's Go bin directory
 install:
-	$(GOINSTALL) $(BUILD_FLAGS) $(MAIN)
-	@echo "Installed: $(BINARY)"
+	GOBIN=$(shell go env GOPATH)/bin $(GOINSTALL) $(BUILD_FLAGS) $(MAIN)
+	@echo "Installed: $(shell go env GOPATH)/bin/$(BINARY)"
 
 ## clean: Remove build artifacts
 clean:
