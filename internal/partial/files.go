@@ -210,7 +210,6 @@ func ProcessFile(srcPath, destPath string, isTemplate bool, vars map[string]stri
 	return nil
 }
 
-
 // ValidateTargetPath checks if the target path is valid and writable.
 func ValidateTargetPath(targetPath string) error {
 	info, err := os.Stat(targetPath)

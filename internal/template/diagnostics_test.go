@@ -8,13 +8,13 @@ import (
 
 func TestMatchWithDetails(t *testing.T) {
 	tests := []struct {
-		name           string
-		include        []string
-		exclude        []string
-		path           string
-		wantIncluded   bool
-		wantRule       string
-		wantPattern    string
+		name         string
+		include      []string
+		exclude      []string
+		path         string
+		wantIncluded bool
+		wantRule     string
+		wantPattern  string
 	}{
 		{
 			name:         "default include when no patterns",

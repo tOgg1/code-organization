@@ -131,9 +131,9 @@ func TestProcessGlobalFiles(t *testing.T) {
 
 	// Verify files exist
 	expectedFiles := []string{
-		"README.md",      // .tmpl stripped
-		"plain.txt",      // unchanged
-		".gitignore",     // unchanged
+		"README.md",  // .tmpl stripped
+		"plain.txt",  // unchanged
+		".gitignore", // unchanged
 		"subdir/config.txt",
 	}
 
@@ -1114,8 +1114,8 @@ func TestListGlobalFilesMulti(t *testing.T) {
 
 	// Verify expected files are present
 	expected := map[string]bool{
-		"README.md":        true,
-		"primary-only.txt": true,
+		"README.md":         true,
+		"primary-only.txt":  true,
 		"fallback-only.txt": true,
 	}
 	for _, f := range files {

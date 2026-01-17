@@ -250,20 +250,20 @@ type TemplateExplorerModel struct {
 	createVars map[string]string
 
 	// Diagnostics state
-	diagMode         bool                            // true when showing diagnostics overlay
-	diagReport       *template.DiagnosticReport      // placeholder scan report
-	diagFileDiags    []template.FileDiagnostic       // file pattern diagnostics
-	diagSelected     int                             // selected item in diagnostics list
-	diagViewport     viewport.Model                  // viewport for diagnostics
-	diagShowPatterns bool                            // true = show patterns, false = show placeholders
+	diagMode         bool                       // true when showing diagnostics overlay
+	diagReport       *template.DiagnosticReport // placeholder scan report
+	diagFileDiags    []template.FileDiagnostic  // file pattern diagnostics
+	diagSelected     int                        // selected item in diagnostics list
+	diagViewport     viewport.Model             // viewport for diagnostics
+	diagShowPatterns bool                       // true = show patterns, false = show placeholders
 
 	// Compare state
-	compareMode      bool                       // true when showing compare overlay
-	compareMarked    *template.TemplateListing  // template marked for comparison
-	compareResult    *template.CompareResult    // comparison result
-	compareSelected  int                        // selected item in compare list
-	compareSection   int                        // 0=vars, 1=repos, 2=hooks, 3=files
-	compareViewport  viewport.Model             // viewport for compare content
+	compareMode     bool                      // true when showing compare overlay
+	compareMarked   *template.TemplateListing // template marked for comparison
+	compareResult   *template.CompareResult   // comparison result
+	compareSelected int                       // selected item in compare list
+	compareSection  int                       // 0=vars, 1=repos, 2=hooks, 3=files
+	compareViewport viewport.Model            // viewport for compare content
 }
 
 // NewTemplateExplorer creates a new template explorer model.

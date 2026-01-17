@@ -76,11 +76,11 @@ func TestMatchGlob(t *testing.T) {
 
 func TestPatternMatcher(t *testing.T) {
 	tests := []struct {
-		name     string
-		include  []string
-		exclude  []string
-		path     string
-		want     bool
+		name    string
+		include []string
+		exclude []string
+		path    string
+		want    bool
 	}{
 		// No patterns - include everything
 		{"no patterns includes all", nil, nil, "any/file.txt", true},
@@ -141,10 +141,10 @@ func TestPatternMatcher(t *testing.T) {
 
 func TestShouldProcessFile(t *testing.T) {
 	tests := []struct {
-		name    string
-		files   TemplateFiles
-		path    string
-		want    bool
+		name  string
+		files TemplateFiles
+		path  string
+		want  bool
 	}{
 		{
 			"default config includes all",

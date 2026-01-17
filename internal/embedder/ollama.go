@@ -38,9 +38,9 @@ type ollamaErrorResponse struct {
 
 // Model dimensions (common embedding models)
 var modelDimensions = map[string]int{
-	"nomic-embed-text": 768,
-	"all-minilm":       384,
-	"mxbai-embed-large": 1024,
+	"nomic-embed-text":       768,
+	"all-minilm":             384,
+	"mxbai-embed-large":      1024,
 	"snowflake-arctic-embed": 1024,
 }
 

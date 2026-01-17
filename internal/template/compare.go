@@ -256,9 +256,9 @@ func compareHooks(hooksA, hooksB *TemplateHooks) []HookDiff {
 	var diffs []HookDiff
 
 	hooks := []struct {
-		name   string
-		specA  HookSpec
-		specB  HookSpec
+		name  string
+		specA HookSpec
+		specB HookSpec
 	}{
 		{"pre_create", hooksA.PreCreate, hooksB.PreCreate},
 		{"post_create", hooksA.PostCreate, hooksB.PostCreate},

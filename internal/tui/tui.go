@@ -22,19 +22,19 @@ var (
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(lipgloss.Color("63")).
 				Padding(1)
-	activePaneStyle   = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("212")).
-				Padding(1)
-	helpStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	headerStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212")).MarginBottom(1)
+	activePaneStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("212")).
+			Padding(1)
+	helpStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212")).MarginBottom(1)
 )
 
 type workspaceItem struct {
 	record *model.IndexRecord
 }
 
-func (i workspaceItem) Title() string       { return i.record.Slug }
+func (i workspaceItem) Title() string { return i.record.Slug }
 func (i workspaceItem) Description() string {
 	dirty := ""
 	if i.record.DirtyRepos > 0 {

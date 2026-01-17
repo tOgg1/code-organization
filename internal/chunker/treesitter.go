@@ -156,17 +156,17 @@ func (c *TreeSitterChunker) getInterestingNodeTypes(lang string) map[string]stri
 		}
 	case "javascript", "typescript":
 		return map[string]string{
-			"function_declaration":      "function",
-			"function_expression":       "function",
-			"arrow_function":            "function",
-			"method_definition":         "method",
-			"class_declaration":         "class",
-			"export_statement":          "export",
-			"lexical_declaration":       "const", // const/let
-			"variable_declaration":      "var",
-			"interface_declaration":     "interface",
-			"type_alias_declaration":    "type",
-			"enum_declaration":          "enum",
+			"function_declaration":   "function",
+			"function_expression":    "function",
+			"arrow_function":         "function",
+			"method_definition":      "method",
+			"class_declaration":      "class",
+			"export_statement":       "export",
+			"lexical_declaration":    "const", // const/let
+			"variable_declaration":   "var",
+			"interface_declaration":  "interface",
+			"type_alias_declaration": "type",
+			"enum_declaration":       "enum",
 		}
 	case "rust":
 		return map[string]string{
@@ -199,10 +199,10 @@ func (c *TreeSitterChunker) getInterestingNodeTypes(lang string) map[string]stri
 		}
 	case "c", "cpp":
 		return map[string]string{
-			"function_definition": "function",
-			"struct_specifier":    "struct",
-			"class_specifier":     "class",
-			"enum_specifier":      "enum",
+			"function_definition":  "function",
+			"struct_specifier":     "struct",
+			"class_specifier":      "class",
+			"enum_specifier":       "enum",
 			"namespace_definition": "namespace",
 		}
 	case "csharp":

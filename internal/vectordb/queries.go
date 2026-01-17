@@ -48,12 +48,12 @@ type SearchResult struct {
 
 // Stats contains database statistics
 type Stats struct {
-	TotalFiles       int64
-	TotalChunks      int64
-	TotalCodebases   int64
-	CodebaseStats    []CodebaseStats
-	OldestIndexed    time.Time
-	NewestIndexed    time.Time
+	TotalFiles        int64
+	TotalChunks       int64
+	TotalCodebases    int64
+	CodebaseStats     []CodebaseStats
+	OldestIndexed     time.Time
+	NewestIndexed     time.Time
 	DatabaseSizeBytes int64
 }
 

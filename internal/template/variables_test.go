@@ -18,8 +18,8 @@ func TestDependencyGraph(t *testing.T) {
 				{Name: "VAR2", Default: "value2"},
 			},
 			expected: map[string][]string{
-				"VAR1": {}, 
-				"VAR2": {}, 
+				"VAR1": {},
+				"VAR2": {},
 			},
 		},
 		{
@@ -29,7 +29,7 @@ func TestDependencyGraph(t *testing.T) {
 				{Name: "VAR2", Default: "{{VAR1}}-suffix"},
 			},
 			expected: map[string][]string{
-				"VAR1": {}, 
+				"VAR1": {},
 				"VAR2": {"VAR1"},
 			},
 		},
@@ -41,9 +41,9 @@ func TestDependencyGraph(t *testing.T) {
 				{Name: "C", Default: "{{B}}c"},
 			},
 			expected: map[string][]string{
-				"A": {}, 
-				"B": {"A"}, 
-				"C": {"B"}, 
+				"A": {},
+				"B": {"A"},
+				"C": {"B"},
 			},
 		},
 		{
@@ -54,9 +54,9 @@ func TestDependencyGraph(t *testing.T) {
 				{Name: "C", Default: "{{A}}-{{B}}"},
 			},
 			expected: map[string][]string{
-				"A": {}, 
-				"B": {}, 
-				"C": {"A", "B"}, 
+				"A": {},
+				"B": {},
+				"C": {"A", "B"},
 			},
 		},
 	}
@@ -101,9 +101,9 @@ func TestTopologicalSort(t *testing.T) {
 		{
 			name: "Simple chain",
 			graph: map[string][]string{
-				"A": {}, 
-				"B": {"A"}, 
-				"C": {"B"}, 
+				"A": {},
+				"B": {"A"},
+				"C": {"B"},
 			},
 			wantOrder: []string{"A", "B", "C"},
 			wantErr:   false,
@@ -111,8 +111,8 @@ func TestTopologicalSort(t *testing.T) {
 		{
 			name: "Independent nodes",
 			graph: map[string][]string{
-				"A": {}, 
-				"B": {}, 
+				"A": {},
+				"B": {},
 			},
 			wantOrder: []string{"A", "B"}, // or B, A. We'll check validity.
 			wantErr:   false,
@@ -120,25 +120,25 @@ func TestTopologicalSort(t *testing.T) {
 		{
 			name: "Diamond",
 			graph: map[string][]string{
-				"A": {}, 
-				"B": {"A"}, 
-				"C": {"A"}, 
-				"D": {"B", "C"}, 
+				"A": {},
+				"B": {"A"},
+				"C": {"A"},
+				"D": {"B", "C"},
 			},
 			wantErr: false,
 		},
 		{
 			name: "Cycle A->B->A",
 			graph: map[string][]string{
-				"A": {"B"}, 
-				"B": {"A"}, 
+				"A": {"B"},
+				"B": {"A"},
 			},
 			wantErr: true,
 		},
 		{
 			name: "Self cycle",
 			graph: map[string][]string{
-				"A": {"A"}, 
+				"A": {"A"},
 			},
 			wantErr: true,
 		},
@@ -378,7 +378,7 @@ func TestValidateVarValue(t *testing.T) {
 func TestResolveVariables(t *testing.T) {
 	tests := []struct {
 		name     string
-		mpl     *Template
+		mpl      *Template
 		provided map[string]string
 		builtins map[string]string
 		want     map[string]string
@@ -392,8 +392,8 @@ func TestResolveVariables(t *testing.T) {
 					{Name: "VAR2", Type: VarTypeString}, // Optional, no default
 				},
 			},
-			provided: map[string]string{}, 
-			builtins: map[string]string{}, 
+			provided: map[string]string{},
+			builtins: map[string]string{},
 			want: map[string]string{
 				"VAR1": "default1",
 				"VAR2": "",
@@ -408,7 +408,7 @@ func TestResolveVariables(t *testing.T) {
 				},
 			},
 			provided: map[string]string{"VAR1": "provided"},
-			builtins: map[string]string{}, 
+			builtins: map[string]string{},
 			want: map[string]string{
 				"VAR1": "provided",
 			},
@@ -422,8 +422,8 @@ func TestResolveVariables(t *testing.T) {
 					{Name: "DERIVED", Type: VarTypeString, Default: "{{BASE}}-derived"},
 				},
 			},
-			provided: map[string]string{}, 
-			builtins: map[string]string{}, 
+			provided: map[string]string{},
+			builtins: map[string]string{},
 			want: map[string]string{
 				"BASE":    "base",
 				"DERIVED": "base-derived",
@@ -437,8 +437,8 @@ func TestResolveVariables(t *testing.T) {
 					{Name: "REQ", Type: VarTypeString, Required: true},
 				},
 			},
-			provided: map[string]string{}, 
-			builtins: map[string]string{}, 
+			provided: map[string]string{},
+			builtins: map[string]string{},
 			want:     nil,
 			wantErr:  true,
 		},
@@ -450,7 +450,7 @@ func TestResolveVariables(t *testing.T) {
 				},
 			},
 			provided: map[string]string{"INT": "abc"},
-			builtins: map[string]string{}, 
+			builtins: map[string]string{},
 			want:     nil,
 			wantErr:  true,
 		},

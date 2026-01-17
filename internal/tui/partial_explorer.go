@@ -119,10 +119,10 @@ type openDirMsg struct {
 
 // PartialExplorerModel is the main model for the partial explorer TUI.
 type PartialExplorerModel struct {
-	cfg       *config.Config
-	partials  []partial.PartialInfo
-	list      list.Model
-	activeTab PartialTab
+	cfg        *config.Config
+	partials   []partial.PartialInfo
+	list       list.Model
+	activeTab  PartialTab
 	activePane Pane
 
 	selectedInfo    *partial.PartialInfo
@@ -733,12 +733,12 @@ func (m PartialExplorerModel) renderBrowseTab() string {
 	left := m.list.View()
 	leftPane := paneStyle.Width(m.width/2 - 2).Height(paneHeight).Render(left)
 	if m.activePane == PaneList {
-		leftPane = activePaneStyle.Width(m.width/2-2).Height(paneHeight).Render(left)
+		leftPane = activePaneStyle.Width(m.width/2 - 2).Height(paneHeight).Render(left)
 	}
 
 	rightPane := paneStyle.Width(m.width/2 - 2).Height(paneHeight).Render(m.partialDetailsView())
 	if m.activePane == PaneDetails {
-		rightPane = activePaneStyle.Width(m.width/2-2).Height(paneHeight).Render(m.partialDetailsView())
+		rightPane = activePaneStyle.Width(m.width/2 - 2).Height(paneHeight).Render(m.partialDetailsView())
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
