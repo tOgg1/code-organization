@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -167,7 +168,13 @@ func (m syncPickerModel) collectSelections() []string {
 }
 
 func RunSyncPicker(records []*model.IndexRecord) (SyncPickerResult, error) {
-	m := newSyncPickerModel(records)
+	sorted := make([]*model.IndexRecord, len(records))
+	copy(sorted, records)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Slug < sorted[j].Slug
+	})
+
+	m := newSyncPickerModel(sorted)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	finalModel, err := p.Run()
 	if err != nil {
