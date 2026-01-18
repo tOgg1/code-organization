@@ -9,11 +9,14 @@ import (
 	"github.com/tormodhaugland/co/internal/index"
 )
 
+var indexNoProjectSync bool
+
 var indexCmd = &cobra.Command{
 	Use:   "index",
 	Short: "Regenerate the workspace index",
 	Long: `Scans code_root and regenerates _system/index.jsonl atomically.
-Computes last commit dates, dirty flags, and workspace sizes.`,
+Computes last commit dates, dirty flags, and workspace sizes.
+Also syncs project.json repo entries from repos/ by default.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load(cfgFile)
 		if err != nil {
@@ -24,6 +27,16 @@ Computes last commit dates, dirty flags, and workspace sizes.`,
 		start := time.Now()
 
 		builder := index.NewBuilder(cfg)
+		builder.SetSyncProjectRepos(!indexNoProjectSync)
+		builder.SetProgress(func(done, total int) {
+			if total == 0 {
+				return
+			}
+			fmt.Printf("\rProgress: %d/%d", done, total)
+			if done == total {
+				fmt.Print("\n")
+			}
+		})
 		idx, err := builder.Build()
 		if err != nil {
 			return fmt.Errorf("failed to build index: %w", err)
@@ -42,5 +55,6 @@ Computes last commit dates, dirty flags, and workspace sizes.`,
 }
 
 func init() {
+	indexCmd.Flags().BoolVar(&indexNoProjectSync, "no-project-sync", false, "skip syncing project.json repos from repos/")
 	rootCmd.AddCommand(indexCmd)
 }

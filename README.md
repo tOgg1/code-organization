@@ -240,6 +240,7 @@ Scan `~/Code` and regenerate `_system/index.jsonl`. Computes:
 - Last filesystem change
 - Repo dirty flags
 - Workspace size
+- Syncs `project.json` repo entries from `repos/` (use `--no-project-sync` to skip)
 
 ```bash
 co index
