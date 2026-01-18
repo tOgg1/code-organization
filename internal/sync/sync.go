@@ -109,7 +109,12 @@ func SyncWorkspace(localPath string, server *config.ServerConfig, slug string, o
 	start := time.Now()
 	result := &Result{}
 
-	remotePath := server.CodeRoot + "/" + slug
+	remoteRoot, err := resolveRemoteRoot(server.SSH, server.CodeRoot)
+	if err != nil {
+		result.Error = err.Error()
+		return result, err
+	}
+	remotePath := path.Join(remoteRoot, slug)
 	project, err := loadProjectForSync(localPath, opts.Project)
 	if err != nil {
 		result.Error = err.Error()
@@ -373,14 +378,18 @@ func buildCloneScript(remoteRoot string, plans []repoClonePlan) (string, error) 
 	var sb strings.Builder
 	sb.WriteString("set -e\n")
 	sb.WriteString("root=" + shellEscape(remoteRoot) + "\n")
+	sb.WriteString("case \"$root\" in\n")
+	sb.WriteString("  ~) root=\"$HOME\";;\n")
+	sb.WriteString("  ~/*) root=\"$HOME/${root#~/}\";;\n")
+	sb.WriteString("esac\n")
 	sb.WriteString("mkdir -p \"$root\"\n")
 	sb.WriteString("mkdir -p \"$root/repos\"\n")
 
 	for _, plan := range plans {
-		dest := path.Join(remoteRoot, plan.Path)
 		sb.WriteString("name=" + shellEscape(plan.Name) + "\n")
 		sb.WriteString("url=" + shellEscape(plan.Remote) + "\n")
-		sb.WriteString("dest=" + shellEscape(dest) + "\n")
+		sb.WriteString("rel=" + shellEscape(plan.Path) + "\n")
+		sb.WriteString("dest=\"$root/$rel\"\n")
 		sb.WriteString("if [ -d \"$dest\" ]; then\n")
 		sb.WriteString("  echo \"SKIP|$name|$dest|exists\"\n")
 		sb.WriteString("else\n")
@@ -450,4 +459,51 @@ func shellEscape(value string) string {
 		return "''"
 	}
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func resolveRemoteRoot(sshHost, remoteRoot string) (string, error) {
+	if !strings.HasPrefix(remoteRoot, "~") {
+		return remoteRoot, nil
+	}
+
+	home, err := remoteHome(sshHost)
+	if err != nil {
+		return "", err
+	}
+
+	expanded, err := expandTildePath(remoteRoot, home)
+	if err != nil {
+		return "", err
+	}
+
+	return path.Clean(expanded), nil
+}
+
+func remoteHome(sshHost string) (string, error) {
+	cmd := exec.Command("ssh", sshHost, "printf %s \"$HOME\"")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("remote home lookup failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	home := strings.TrimSpace(string(output))
+	if home == "" {
+		return "", fmt.Errorf("remote HOME is empty")
+	}
+	return home, nil
+}
+
+func expandTildePath(remoteRoot, home string) (string, error) {
+	if !strings.HasPrefix(remoteRoot, "~") {
+		return remoteRoot, nil
+	}
+	if home == "" {
+		return "", fmt.Errorf("remote HOME is empty")
+	}
+	if remoteRoot == "~" {
+		return home, nil
+	}
+	if strings.HasPrefix(remoteRoot, "~/") {
+		return path.Join(home, strings.TrimPrefix(remoteRoot, "~/")), nil
+	}
+	return "", fmt.Errorf("unsupported remote root: %s", remoteRoot)
 }
