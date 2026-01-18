@@ -101,7 +101,7 @@ func (o *Options) BuildExcludes() (*fs.ExcludeList, error) {
 		IncludeEnv: o.IncludeEnv,
 	})
 
-	excludeList.Patterns = appendMissing(excludeList.Patterns, o.ForceExcludePatterns...)
+	excludeList.Patterns = appendMissing(excludeList.Patterns, o.ForceExcludePatterns)
 	return excludeList, nil
 }
 
