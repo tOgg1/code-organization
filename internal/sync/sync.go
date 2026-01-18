@@ -288,10 +288,19 @@ func loadProjectForSync(localPath string, project *model.Project) (*model.Projec
 }
 
 func resolveRepoClones(localPath string, project *model.Project) ([]repoClonePlan, []RepoResult, error) {
-	plans := make([]repoClonePlan, 0, len(project.Repos))
-	results := make([]RepoResult, 0, len(project.Repos))
+	repos := project.Repos
+	if len(repos) == 0 {
+		discovered, err := discoverRepos(localPath)
+		if err != nil {
+			return nil, nil, err
+		}
+		repos = discovered
+	}
 
-	for _, repo := range project.Repos {
+	plans := make([]repoClonePlan, 0, len(repos))
+	results := make([]RepoResult, 0, len(repos))
+
+	for _, repo := range repos {
 		if strings.TrimSpace(repo.Path) == "" {
 			results = append(results, RepoResult{
 				Name:    repo.Name,
@@ -339,6 +348,27 @@ func resolveRepoClones(localPath string, project *model.Project) ([]repoClonePla
 	}
 
 	return plans, results, nil
+}
+
+func discoverRepos(localPath string) ([]model.RepoSpec, error) {
+	repos, err := fs.ListRepos(localPath)
+	if err != nil {
+		return nil, fmt.Errorf("list repos for sync: %w", err)
+	}
+
+	specs := make([]model.RepoSpec, 0, len(repos))
+	for _, repo := range repos {
+		repo = strings.TrimSpace(repo)
+		if repo == "" {
+			continue
+		}
+		specs = append(specs, model.RepoSpec{
+			Name: repo,
+			Path: path.Join("repos", repo),
+		})
+	}
+
+	return specs, nil
 }
 
 func safeRepoPath(repoPath string) (string, error) {
