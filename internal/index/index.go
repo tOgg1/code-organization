@@ -12,15 +12,26 @@ import (
 )
 
 type Builder struct {
-	cfg     *config.Config
-	workers int
+	cfg              *config.Config
+	workers          int
+	syncProjectRepos bool
+	progress         func(done, total int)
 }
 
 func NewBuilder(cfg *config.Config) *Builder {
 	return &Builder{
-		cfg:     cfg,
-		workers: 4,
+		cfg:              cfg,
+		workers:          4,
+		syncProjectRepos: true,
 	}
+}
+
+func (b *Builder) SetSyncProjectRepos(enabled bool) {
+	b.syncProjectRepos = enabled
+}
+
+func (b *Builder) SetProgress(fn func(done, total int)) {
+	b.progress = fn
 }
 
 func (b *Builder) Build() (*model.Index, error) {
@@ -52,8 +63,15 @@ func (b *Builder) Build() (*model.Index, error) {
 		close(results)
 	}()
 
+	total := len(workspaces)
+	done := 0
+
 	for record := range results {
 		index.Add(record)
+		done++
+		if b.progress != nil {
+			b.progress(done, total)
+		}
 	}
 
 	return index, nil
@@ -86,6 +104,7 @@ func (b *Builder) buildRecord(slug string) *model.IndexRecord {
 
 		var latestCommit time.Time
 		var dirtyCount int
+		repoSpecs := make([]model.RepoSpec, 0, len(repos))
 
 		for _, repoName := range repos {
 			repoPath := filepath.Join(workspacePath, "repos", repoName)
@@ -94,6 +113,11 @@ func (b *Builder) buildRecord(slug string) *model.IndexRecord {
 			repoInfo.Name = repoName
 			repoInfo.Path = "repos/" + repoName
 
+			repoSpec := model.RepoSpec{
+				Name: repoName,
+				Path: "repos/" + repoName,
+			}
+
 			if git.IsRepo(repoPath) {
 				info, err := git.GetInfo(repoPath)
 				if err == nil {
@@ -101,6 +125,7 @@ func (b *Builder) buildRecord(slug string) *model.IndexRecord {
 					repoInfo.Branch = info.Branch
 					repoInfo.Dirty = info.Dirty
 					repoInfo.Remote = info.Remote
+					repoSpec.Remote = info.Remote
 
 					if info.Dirty {
 						dirtyCount++
@@ -113,11 +138,19 @@ func (b *Builder) buildRecord(slug string) *model.IndexRecord {
 			}
 
 			record.Repos = append(record.Repos, repoInfo)
+			repoSpecs = append(repoSpecs, repoSpec)
 		}
 
 		record.DirtyRepos = dirtyCount
 		if !latestCommit.IsZero() {
 			record.LastCommitAt = &latestCommit
+		}
+
+		if b.syncProjectRepos {
+			if !repoSpecsEqual(proj.Repos, repoSpecs) {
+				proj.Repos = repoSpecs
+				_ = proj.Save(workspacePath)
+			}
 		}
 	}
 
@@ -133,6 +166,24 @@ func (b *Builder) buildRecord(slug string) *model.IndexRecord {
 	}
 
 	return record
+}
+
+func repoSpecsEqual(left, right []model.RepoSpec) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i].Name != right[i].Name {
+			return false
+		}
+		if left[i].Path != right[i].Path {
+			return false
+		}
+		if left[i].Remote != right[i].Remote {
+			return false
+		}
+	}
+	return true
 }
 
 func (b *Builder) Save(index *model.Index) error {
