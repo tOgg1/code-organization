@@ -67,11 +67,13 @@ func ResolvePartialVariables(p *Partial, provided, builtins map[string]string) (
 	}
 
 	resolved := make(map[string]string)
+	declared := make(map[string]struct{}, len(p.Variables))
 	for k, v := range builtins {
 		resolved[k] = v
 	}
 
 	for _, v := range p.Variables {
+		declared[v.Name] = struct{}{}
 		if value, ok := provided[v.Name]; ok {
 			if err := template.ValidateVarValue(partialVarToTemplateVar(v), value); err != nil {
 				return nil, mapTemplateVarError(err)
@@ -99,6 +101,16 @@ func ResolvePartialVariables(p *Partial, provided, builtins map[string]string) (
 				Description: v.Description,
 			}
 		}
+	}
+
+	for k, v := range provided {
+		if _, ok := declared[k]; ok {
+			continue
+		}
+		if _, ok := resolved[k]; ok {
+			continue
+		}
+		resolved[k] = v
 	}
 
 	return resolved, nil
