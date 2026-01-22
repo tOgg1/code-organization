@@ -246,6 +246,16 @@ Scan `~/Code` and regenerate `_system/index.jsonl`. Computes:
 co index
 ```
 
+#### `co doctor`
+
+Scan workspaces for missing `project.json` files and optionally create them.
+
+```bash
+co doctor
+co doctor --dry-run
+co doctor --yes
+```
+
 #### `co ls`
 
 List workspaces with optional filters.
