@@ -336,6 +336,36 @@ func RunVariablePrompt(vars []template.TemplateVar, builtins map[string]string) 
 	return VariablePromptResult{Variables: fm.values}, nil
 }
 
+// RunVariablePromptWithSkip runs the variable prompting TUI, skipping only the provided names.
+func RunVariablePromptWithSkip(vars []template.TemplateVar, seed map[string]string, skip map[string]bool) (VariablePromptResult, error) {
+	promptVars := make([]template.TemplateVar, 0, len(vars))
+	for _, v := range vars {
+		if skip != nil && skip[v.Name] {
+			continue
+		}
+		promptVars = append(promptVars, v)
+	}
+
+	if len(promptVars) == 0 {
+		return VariablePromptResult{Variables: seed}, nil
+	}
+
+	m := newVariablePromptModel(promptVars, seed)
+	p := tea.NewProgram(m)
+
+	finalModel, err := p.Run()
+	if err != nil {
+		return VariablePromptResult{Abort: true}, err
+	}
+
+	fm := finalModel.(variablePromptModel)
+	if fm.abort {
+		return VariablePromptResult{Abort: true}, nil
+	}
+
+	return VariablePromptResult{Variables: fm.values}, nil
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
