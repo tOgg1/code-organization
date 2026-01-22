@@ -27,7 +27,7 @@ var (
 
 var partialCmd = &cobra.Command{
 	Use:     "partial",
-	Aliases: []string{"p"},
+	Aliases: []string{"p", "partials"},
 	Short:   "Manage reusable file sets (partials)",
 	Long: `Partials are reusable file sets that can be applied to any directory.
 They are smaller than templates and can be used to add or update files in
@@ -45,9 +45,10 @@ existing projects without creating a new workspace.`,
 }
 
 var partialListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List available partials",
-	Long:  "Lists all available partials with descriptions and counts.",
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List available partials",
+	Long:    "Lists all available partials with descriptions and counts.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load(cfgFile)
 		if err != nil {
