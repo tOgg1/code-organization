@@ -307,6 +307,13 @@ func (m PartialExplorerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m PartialExplorerModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.list.FilterState() == list.Filtering {
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		m.syncSelectedFromList()
+		return m, cmd
+	}
+
 	switch msg.String() {
 	case "l", "right":
 		if m.activePane == PaneList {
@@ -318,6 +325,8 @@ func (m PartialExplorerModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			m.activePane = PaneList
 		}
 		return m, nil
+	case "enter":
+		return m.enterApplyMode()
 	case "o":
 		return m, m.openSelected()
 	}
@@ -376,10 +385,7 @@ func (m PartialExplorerModel) updateApply(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "v":
-		if m.applyFocus == ApplyFocusVars {
-			return m, m.promptVariables()
-		}
-		return m, nil
+		return m, m.promptVariables()
 	case "a":
 		if m.applyFocus == ApplyFocusApply {
 			return m, m.applySelected()
@@ -388,6 +394,23 @@ func (m PartialExplorerModel) updateApply(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "b":
 		m.openDirPicker()
 		return m, nil
+	}
+
+	return m, nil
+}
+
+func (m *PartialExplorerModel) enterApplyMode() (tea.Model, tea.Cmd) {
+	m.activeTab = PartialTabApply
+	m.targetEditing = false
+	m.applyFocus = ApplyFocusTarget
+
+	if m.selectedPartial == nil {
+		return m, nil
+	}
+
+	if len(m.applyVars) == 0 && len(m.selectedPartial.Variables) > 0 {
+		m.applyFocus = ApplyFocusVars
+		return m, m.promptVariables()
 	}
 
 	return m, nil
@@ -972,7 +995,7 @@ func (m PartialExplorerModel) renderStatus() string {
 func (m PartialExplorerModel) renderHelp() string {
 	switch m.activeTab {
 	case PartialTabBrowse:
-		return helpStyle.Render("j/k: navigate | /: search | l/h: switch pane | o: open | tab: next tab | q: quit")
+		return helpStyle.Render("j/k: navigate | /: search | enter: apply | l/h: switch pane | o: open | tab: next tab | q: quit")
 	case PartialTabApply:
 		return helpStyle.Render("j/k: focus | enter: edit/confirm | t: edit target | c/d/h/v/a: conflict/dry/no-hooks/vars/apply | b: browse dir | tab: next tab | q: quit")
 	case PartialTabValidate:
