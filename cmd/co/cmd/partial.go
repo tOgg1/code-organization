@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tormodhaugland/co/internal/config"
 	"github.com/tormodhaugland/co/internal/partial"
+	"github.com/tormodhaugland/co/internal/template"
 	"github.com/tormodhaugland/co/internal/tui"
 )
 
@@ -238,6 +239,52 @@ Flags:
 		// Parse variables
 		vars := parsePartialVars(partialApplyVars)
 
+		p, _, err := partial.LoadPartialByName(partialName, cfg.AllPartialsDirs())
+		if err != nil {
+			return handleApplyError(err, cfg)
+		}
+
+		if len(p.Variables) > 0 {
+			builtins, err := partial.GetPartialBuiltins(absTargetPath)
+			if err != nil {
+				return fmt.Errorf("building builtins: %w", err)
+			}
+
+			skip := make(map[string]bool, len(vars))
+			for k := range vars {
+				skip[k] = true
+			}
+
+			needsPrompt := false
+			for _, v := range p.Variables {
+				if !skip[v.Name] {
+					needsPrompt = true
+					break
+				}
+			}
+
+			if needsPrompt {
+				seed := mergeVarMaps(builtins, vars)
+				tmplVars := partialVarsToTemplate(p.Variables)
+				result, err := tui.RunVariablePromptWithSkip(tmplVars, seed, skip)
+				if err != nil {
+					return fmt.Errorf("variable prompt failed: %w", err)
+				}
+				if result.Abort {
+					return fmt.Errorf("variable prompt cancelled")
+				}
+
+				for _, v := range p.Variables {
+					if skip[v.Name] {
+						continue
+					}
+					if val, ok := result.Variables[v.Name]; ok {
+						vars[v.Name] = val
+					}
+				}
+			}
+		}
+
 		// Build options
 		opts := partial.ApplyOptions{
 			PartialName:      partialName,
@@ -275,6 +322,33 @@ func parsePartialVars(vars []string) map[string]string {
 		}
 	}
 	return result
+}
+
+func partialVarsToTemplate(vars []partial.PartialVar) []template.TemplateVar {
+	out := make([]template.TemplateVar, 0, len(vars))
+	for _, v := range vars {
+		out = append(out, template.TemplateVar{
+			Name:        v.Name,
+			Description: v.Description,
+			Type:        v.Type,
+			Required:    v.Required,
+			Default:     v.Default,
+			Validation:  v.Validation,
+			Choices:     v.Choices,
+		})
+	}
+	return out
+}
+
+func mergeVarMaps(a, b map[string]string) map[string]string {
+	out := make(map[string]string)
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		out[k] = v
+	}
+	return out
 }
 
 func handleApplyError(err error, cfg *config.Config) error {
